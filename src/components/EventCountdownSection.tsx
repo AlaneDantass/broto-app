@@ -165,7 +165,7 @@ export const EventCountdownSection: React.FC = () => {
                     let badgeLabel = `Faltam ${days} dias`;
 
                     if (days === 0) {
-                      badgeBg = "bg-red-500 text-white font-bold animate-pulse";
+                      badgeBg = "bg-red-500 text-white font-bold";
                       badgeLabel = "🚨 Hoje!";
                     } else if (days === 1) {
                       badgeBg = "bg-amber-500 text-white font-semibold";

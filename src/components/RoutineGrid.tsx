@@ -619,7 +619,7 @@ export const RoutineGrid: React.FC = () => {
                     </span>
                     {isToday && (
                       <span
-                        className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0 animate-pulse"
+                        className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"
                         title="Dia atual"
                       />
                     )}
