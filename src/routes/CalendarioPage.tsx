@@ -279,22 +279,29 @@ export const CalendarioPage: React.FC = () => {
               <div
                 key={idx}
                 onClick={() => d && handleCellClick(dataStr)}
-                className={`${viewType === "month" ? "h-[86px]" : "h-[154px]"} p-1 border-r border-b border-outline-variant flex flex-col justify-between transition-colors ${
+                className={`${viewType === "month" ? "h-[86px]" : "h-[154px]"} p-1.5 border-r border-b border-outline-variant flex flex-col justify-between transition-colors ${
                   !d
                     ? "bg-surface-variant-low"
                     : isToday
-                    ? "bg-primary-container/20 hover:bg-primary-container/30 cursor-pointer"
+                    ? "bg-primary/5 hover:bg-primary/10 cursor-pointer"
                     : "bg-surface hover:bg-surface-variant-low cursor-pointer"
                 }`}
               >
                 {d ? (
                   <>
-                    <div
-                      className={`text-label-xs font-bold leading-none self-start ${
-                        isToday ? "text-primary" : "text-on-surface-variant"
-                      }`}
-                    >
-                      {d}
+                    <div className="flex items-center justify-between">
+                      {isToday ? (
+                        <span
+                          className="w-6 h-6 rounded-full bg-primary text-on-primary flex items-center justify-center text-[12px] font-bold shadow-xs select-none"
+                          title="Hoje"
+                        >
+                          {d}
+                        </span>
+                      ) : (
+                        <span className="text-label-xs font-semibold text-on-surface-variant px-1 select-none">
+                          {d}
+                        </span>
+                      )}
                     </div>
                     <div className="space-y-0.5 overflow-hidden flex-1 mt-1 flex flex-col justify-end">
                       {eventosDoDia.slice(0, 2).map((evento) => (
