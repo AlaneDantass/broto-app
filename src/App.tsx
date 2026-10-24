@@ -18,6 +18,7 @@ import { ConfiguracoesPage } from "./routes/ConfiguracoesPage";
 import { PerfilPage } from "./routes/PerfilPage";
 import { PrivacidadePage } from "./routes/PrivacidadePage";
 import { TermosPage } from "./routes/TermosPage";
+import { ConsentPage } from "./routes/ConsentPage";
 import { SidebarNew, FloatingCaptureButton, NotificationBell } from "./components";
 import { TransitionToast } from "./components/TransitionToast";
 import { supabase } from "./lib/supabase";
@@ -36,7 +37,7 @@ const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, loading } = useAuth();
+  const { user, loading, termsAccepted } = useAuth();
 
   if (loading) {
     return <div className="flex items-center justify-center h-screen">Carregando...</div>;
@@ -44,6 +45,10 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
   if (!user) {
     return <Navigate to="/login" />;
+  }
+
+  if (!termsAccepted) {
+    return <ConsentPage />;
   }
 
   return <>{children}</>;

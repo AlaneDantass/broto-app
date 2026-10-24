@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import type { User, Session } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
+import { TERMS_VERSION } from "../components/LegalContent";
 
 interface AuthContextType {
   user: User | null;
@@ -10,6 +11,10 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<void>;
   signInWithOAuth: (provider: "github" | "google") => Promise<void>;
   signOut: () => Promise<void>;
+  /** Registra o aceite da Política de Privacidade e dos Termos no perfil do usuário. */
+  acceptTerms: () => Promise<void>;
+  /** Indica se o usuário já aceitou a versão atual dos termos. */
+  termsAccepted: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -92,9 +97,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     if (error) throw error;
   };
 
+  const acceptTerms = async () => {
+    const { data, error } = await supabase.auth.updateUser({
+      data: {
+        termos_versao: TERMS_VERSION,
+        termos_aceitos_em: new Date().toISOString(),
+      },
+    });
+    if (error) throw error;
+    if (data.user) setUser(data.user);
+  };
+
+  const termsAccepted = user?.user_metadata?.termos_versao === TERMS_VERSION;
+
   return (
     <AuthContext.Provider
-      value={{ user, session, loading, signUp, signIn, signInWithOAuth, signOut }}
+      value={{
+        user,
+        session,
+        loading,
+        signUp,
+        signIn,
+        signInWithOAuth,
+        signOut,
+        acceptTerms,
+        termsAccepted,
+      }}
     >
       {children}
     </AuthContext.Provider>
