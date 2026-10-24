@@ -11,19 +11,19 @@
 :root,
 [data-tema="claro"] {
   /* Surface */
-  --color-surface:                    #fbfaf9;
-  --color-surface-dim:                #e6e1d6;
-  --color-surface-bright:             #fcfcfa;
+  --color-surface:                    #ffffff;
+  --color-surface-dim:                #ffffff;
+  --color-surface-bright:             #ffffff;
   --color-surface-container-lowest:   #ffffff;
-  --color-surface-container-low:      #f4efdcff;
-  --color-surface-container:          #fdf8ebff;
-  --color-surface-container-high:     #eeeae3;
-  --color-surface-container-highest:  #e8e3d9;
-  --color-surface-variant:            #e5e9e2;
+  --color-surface-container-low:      #ffffff;
+  --color-surface-container:          #ffffff;
+  --color-surface-container-high:     #ffffff;
+  --color-surface-container-highest:  #ffffff;
+  --color-surface-variant:            #ffffff;
   --color-on-surface:                 #2f2a1d;
   --color-on-surface-variant:         #505d46;
   --color-inverse-surface:            #463d2b;
-  --color-inverse-on-surface:         #f5f3ef;
+  --color-inverse-on-surface:         #ffffff;
   --color-surface-tint:               #577e44;
 
   /* Outline */
@@ -56,7 +56,7 @@
   --color-on-error-container:         #54201c;
 
   /* Background */
-  --color-background:                 #FFE8D6;
+  --color-background:                 #ffffff;
   --color-on-background:              #2c271b;
 
   /* Sidebar */
