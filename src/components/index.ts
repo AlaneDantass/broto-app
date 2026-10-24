@@ -37,5 +37,6 @@ export { DayPlanBlocoCard } from "./DayPlanBlocoCard";
 export { DayPlanSelectionModal } from "./DayPlanSelectionModal";
 export { NotificationBell } from "./NotificationBell";
 export { DatasImportantesSection } from "./DatasImportantesSection";
+export { EventCountdownSection } from "./EventCountdownSection";
 export * from './RoutineGrid';
 export * from './CustomSelect';

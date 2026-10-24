@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useEventosCalendario } from "../hooks/useEventosCalendario";
-import { Card, EventoModal, SkeletonLoader } from "../components";
+import { Card, EventoModal, SkeletonLoader, EventCountdownSection } from "../components";
 import { RoutineGrid } from "../components/RoutineGrid";
 import { useLanguage } from "../contexts/LanguageContext";
 import type { EventoCalendario } from "../types/database";
@@ -348,6 +348,8 @@ export const CalendarioPage: React.FC = () => {
       </div>
 
       <RoutineGrid />
+
+      <EventCountdownSection />
 
       <EventoModal
         isOpen={isModalOpen}
