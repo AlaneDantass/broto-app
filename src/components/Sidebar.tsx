@@ -47,7 +47,7 @@ export const Sidebar: React.FC = () => {
       <div className="p-6 border-b border-outline-variant">
         <div className="flex items-center gap-3 mb-2">
           <Logo className="w-8 h-8 text-primary" />
-          <h1 className="text-headline-sm font-playfair font-semibold text-on-surface">
+          <h1 className="text-headline-sm font-playfair font-normal text-on-surface">
             Broto
           </h1>
         </div>
@@ -118,8 +118,8 @@ export const Sidebar: React.FC = () => {
             <p className="text-body-sm font-medium text-on-surface truncate">
               {user?.email?.split("@")[0] || "User"}
             </p>
-            <p className="text-label-xs text-on-surface-variant truncate">
-              {user?.email || ""}
+            <p className="text-label-xs text-error truncate font-bold">
+              Sair
             </p>
           </div>
           {/* Logout icon */}

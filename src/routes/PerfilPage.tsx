@@ -3,7 +3,8 @@ import { usePerfil } from "../hooks/usePerfil";
 import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
 import { Card, SkeletonLoader } from "../components";
-import { Upload, X, CheckCircle2, User as UserIcon } from "lucide-react";
+import { Upload, X, CheckCircle2, User as UserIcon, LogOut } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../contexts/LanguageContext";
 const NEURODIVERGENCIAS_PADRAO = [
   "TDAH",
@@ -14,7 +15,17 @@ const NEURODIVERGENCIAS_PADRAO = [
 ];
 
 export const PerfilPage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      navigate("/login");
+    } catch (err) {
+      console.error("Erro ao sair:", err);
+    }
+  };
   const { perfil, loading, updatePerfil, updateAvatar } = usePerfil();
   const { t } = useLanguage();
   
@@ -320,7 +331,16 @@ export const PerfilPage: React.FC = () => {
       </Card>
       
       {/* Footer Actions */}
-      <div className="flex justify-end items-center gap-4 py-4">
+      <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4 py-4 border-t border-outline-variant/40 mt-4">
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="flex items-center justify-center gap-2 px-4 py-2.5 text-error hover:bg-error/10 border border-error/30 rounded-lg transition-colors font-bold text-label-md cursor-pointer"
+        >
+          <LogOut size={18} />
+          <span>Sair</span>
+        </button>
+        <div className="flex justify-end items-center gap-3">
         <button 
           onClick={() => {
             // Reset to last saved state
@@ -345,6 +365,7 @@ export const PerfilPage: React.FC = () => {
         >
           {isSaving ? t("profile.saving") : t("profile.save")}
         </button>
+        </div>
       </div>
     </div>
   );

@@ -238,7 +238,7 @@ export const SidebarNew: React.FC = () => {
             <p className="text-label-sm font-medium text-on-sidebar truncate">
               {user?.email?.split("@")[0] || t("common.user")}
             </p>
-            <p className="text-label-xs text-on-sidebar text-opacity-60 truncate">
+            <p className="text-label-xs text-on-sidebar text-opacity-90 truncate font-bold">
               {t("sidebar.logout")}
             </p>
           </div>
