@@ -16,6 +16,7 @@ import { IdeiasPage } from "./routes/IdeiasPage";
 import { TriagemPage } from "./routes/TriagemPage";
 import { ConfiguracoesPage } from "./routes/ConfiguracoesPage";
 import { PerfilPage } from "./routes/PerfilPage";
+import { PrivacidadePage } from "./routes/PrivacidadePage";
 import { SidebarNew, FloatingCaptureButton, NotificationBell } from "./components";
 import { TransitionToast } from "./components/TransitionToast";
 import { supabase } from "./lib/supabase";
@@ -57,6 +58,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<AuthPage />} />
+      <Route path="/privacidade" element={<PrivacidadePage />} />
       <Route
         path="/*"
         element={
