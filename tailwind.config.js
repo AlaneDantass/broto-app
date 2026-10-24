@@ -67,8 +67,9 @@ export default {
         "grid-container":             "var(--color-grid-container)",
       },
       fontFamily: {
-        "playfair": ["Playfair Display", "serif"],
-        "dm-sans":  ["DM Sans", "sans-serif"],
+        "sans": ["'DM Sans'", "sans-serif"],
+        "dm-sans": ["'DM Sans'", "sans-serif"],
+        "playfair": ["'DM Sans'", "sans-serif"],
       },
       fontSize: {
         "headline-lg":        ["40px", { lineHeight: "1.2", fontWeight: "700" }],

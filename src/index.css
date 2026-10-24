@@ -1,5 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -318,14 +317,17 @@
   * {
     scrollbar-color: var(--sb-thumb-color) var(--sb-track-color);
     scrollbar-width: thin;
+    font-family: 'DM Sans', sans-serif;
   }
 
   body {
     @apply bg-surface text-on-surface font-dm-sans;
+    font-family: 'DM Sans', sans-serif;
   }
 
   h1, h2, h3, h4, h5, h6 {
-    @apply font-playfair;
+    @apply font-dm-sans;
+    font-family: 'DM Sans', sans-serif;
   }
 
   h1 { @apply text-headline-lg; }
