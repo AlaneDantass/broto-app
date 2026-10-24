@@ -140,6 +140,9 @@ export interface EventoRotina {
   fim_minutos: number;
   titulo: string;
   cor: string;
+  semana_inicio?: string;
+  google_event_id?: string;
+  origem?: "manual" | "google";
 }
 
 export interface ConfiguracaoUsuario {

@@ -32,6 +32,7 @@ interface EventoBroto {
   titulo: string;
   data: string;       // YYYY-MM-DD
   hora?: string;      // HH:MM ou HH:MM:SS
+  duracao_minutos?: number;
   cor?: string;
   google_event_id?: string;
 }
@@ -104,15 +105,16 @@ function toGoogleEvent(evento: EventoBroto) {
   if (hasTime && horaLimpa) {
     // Evento com horário específico (dateTime)
     const startDateTime = `${evento.data}T${horaLimpa}:00`;
-    // Duração padrão de 1 hora
-    const [h, m] = horaLimpa.split(":").map(Number);
+    // Duração padrão de 1 hora (ou duracao_minutos se informado)
+    const duracaoMin = evento.duracao_minutos && evento.duracao_minutos > 0 ? evento.duracao_minutos : 60;
     const endDate = new Date(`${evento.data}T${horaLimpa}:00`);
-    endDate.setHours(h + 1, m);
-    const endDateTime = endDate.toISOString().slice(0, 16);
+    endDate.setMinutes(endDate.getMinutes() + duracaoMin);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const endDateTime = `${endDate.getFullYear()}-${pad(endDate.getMonth() + 1)}-${pad(endDate.getDate())}T${pad(endDate.getHours())}:${pad(endDate.getMinutes())}`;
 
     return {
       summary: evento.titulo,
-      start: { dateTime: `${startDateTime}:00`, timeZone: "America/Sao_Paulo" },
+      start: { dateTime: `${startDateTime}`, timeZone: "America/Sao_Paulo" },
       end: { dateTime: `${endDateTime}:00`, timeZone: "America/Sao_Paulo" },
       colorId: googleColorIdFromHex(evento.cor),
       extendedProperties: {

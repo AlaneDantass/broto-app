@@ -44,6 +44,9 @@ export const useGoogleAgenda = (): UseGoogleAgendaReturn => {
         .maybeSingle();
 
       setIntegracao(data ?? null);
+      if (data) {
+        setConectando(false);
+      }
     } catch (err) {
       console.error("useGoogleAgenda: erro ao carregar integração", err);
     } finally {
@@ -53,6 +56,31 @@ export const useGoogleAgenda = (): UseGoogleAgendaReturn => {
 
   useEffect(() => {
     fetchIntegracao();
+
+    if (!user) return;
+
+    // Realtime listener para atualizar automaticamente quando o OAuth concluir no navegador ou Tauri
+    const channelId = Math.random().toString(36).substring(7);
+    const subscription = supabase
+      .channel(`integracoes_google_agenda:${user.id}:${channelId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "integracoes_google_agenda",
+          filter: `usuario_id=eq.${user.id}`,
+        },
+        () => {
+          fetchIntegracao();
+        }
+      )
+      .subscribe();
+
+    const handleWindowFocus = () => {
+      fetchIntegracao();
+    };
+    window.addEventListener("focus", handleWindowFocus);
 
     // Listener para deep link broto://oauth-success — Tauri dispara quando o OAuth retorna
     // Usa a API de deep link do Tauri se disponível
@@ -66,6 +94,7 @@ export const useGoogleAgenda = (): UseGoogleAgendaReturn => {
           for (const url of urls) {
             if (url.startsWith("broto://oauth-success")) {
               // OAuth concluído com sucesso — recarrega o status da integração
+              setConectando(false);
               fetchIntegracao();
             }
             if (url.startsWith("broto://oauth-error")) {
@@ -83,9 +112,11 @@ export const useGoogleAgenda = (): UseGoogleAgendaReturn => {
     setupDeepLinkListener();
 
     return () => {
+      supabase.removeChannel(subscription);
+      window.removeEventListener("focus", handleWindowFocus);
       if (unlistenFn) unlistenFn();
     };
-  }, [fetchIntegracao]);
+  }, [user, fetchIntegracao]);
 
   /**
    * Inicia o fluxo OAuth: pede a URL à Edge Function e abre no browser externo.

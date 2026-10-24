@@ -1,6 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useConfiguracoes } from "../hooks/useConfiguracoes";
-import { Plus, X, Trash2 } from "lucide-react";
+import { useGoogleAgenda } from "../hooks/useGoogleAgenda";
+import { useEventosCalendario } from "../hooks/useEventosCalendario";
+import { Plus, X, Trash2, Calendar, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import { Card } from "./Card";
 import type { EventoRotina } from "../types/database";
 
@@ -11,14 +13,32 @@ const COLORS = [
 
 const DAYS_OF_WEEK = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
-interface Selection {
-  day: number;
-  startMin: number;
-  endMin: number;
-}
+const formatDateYYYYMMDD = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+const formatMinToTime = (totalMin: number) => {
+  const normalized = ((totalMin % (24 * 60)) + 24 * 60) % (24 * 60);
+  const h = Math.floor(normalized / 60);
+  const m = normalized % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+};
 
 export const RoutineGrid: React.FC = () => {
   const { config, updateConfig } = useConfiguracoes();
+  const {
+    integrado,
+    emailGoogle,
+    carregando: googleCarregando,
+    conectando,
+    conectar,
+    callSync,
+  } = useGoogleAgenda();
+  const {
+    eventos: eventosCalendario,
+    updateEvento,
+    deleteEvento,
+    pullFromGoogle,
+  } = useEventosCalendario();
   
   const [editingDay, setEditingDay] = useState<number | null>(null);
   const [tagName, setTagName] = useState("");
@@ -29,6 +49,128 @@ export const RoutineGrid: React.FC = () => {
   const [selectionCurrent, setSelectionCurrent] = useState<{ day: number, min: number } | null>(null);
   
   const [editingEvent, setEditingEvent] = useState<Partial<EventoRotina> | null>(null);
+  const [sincronizando, setSincronizando] = useState(false);
+
+  const cleaningWeekRef = useRef<string | null>(null);
+  const syncingRoutineIdsRef = useRef<Set<string>>(new Set());
+
+  const today = new Date();
+  const todayDayIndex = today.getDay();
+  const startOfWeek = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate() - todayDayIndex
+  );
+  const currentWeekStartStr = formatDateYYYYMMDD(startOfWeek);
+
+  const getDateStrForDayIndex = useCallback(
+    (dayIndex: number) => {
+      const d = new Date(
+        today.getFullYear(),
+        today.getMonth(),
+        today.getDate() - todayDayIndex + dayIndex
+      );
+      return formatDateYYYYMMDD(d);
+    },
+    [today.getFullYear(), today.getMonth(), today.getDate(), todayDayIndex]
+  );
+
+  // Limpeza automática dos horários quando muda a semana
+  useEffect(() => {
+    if (!config) return;
+    const rawEventos: EventoRotina[] = config.eventos_rotina_semanal || [];
+    if (rawEventos.length === 0) return;
+
+    const currentWeekEventos = rawEventos.filter(
+      (e) => e.semana_inicio === currentWeekStartStr
+    );
+
+    if (
+      currentWeekEventos.length !== rawEventos.length &&
+      cleaningWeekRef.current !== currentWeekStartStr
+    ) {
+      cleaningWeekRef.current = currentWeekStartStr;
+      updateConfig({ eventos_rotina_semanal: currentWeekEventos }).catch((err) => {
+        console.error("Erro ao limpar atividades da semana anterior:", err);
+        cleaningWeekRef.current = null;
+      });
+    }
+  }, [config, currentWeekStartStr, updateConfig]);
+
+  // Sincroniza atividades manuais da semana atual que ainda não possuem google_event_id quando conectado
+  const pushUnsyncedRoutineEvents = useCallback(async () => {
+    if (!integrado || !config) return;
+    const intervalMin = config.intervalo_rotina_minutos || 60;
+    const currentWeekEventos = (config.eventos_rotina_semanal || []).filter(
+      (e) => e.semana_inicio === currentWeekStartStr
+    );
+    const unsynced = currentWeekEventos.filter(
+      (e) =>
+        !e.google_event_id &&
+        e.origem !== "google" &&
+        !syncingRoutineIdsRef.current.has(e.id)
+    );
+    if (unsynced.length === 0) return;
+
+    let updatedAny = false;
+    const updatedList = [...currentWeekEventos];
+
+    for (const ev of unsynced) {
+      syncingRoutineIdsRef.current.add(ev.id);
+      try {
+        const res = await callSync({
+          action: "create",
+          evento: {
+            id: ev.id,
+            titulo: ev.titulo,
+            data: getDateStrForDayIndex(ev.dia),
+            hora: formatMinToTime(ev.inicio_minutos),
+            duracao_minutos: ev.fim_minutos - ev.inicio_minutos + intervalMin,
+            cor: ev.cor,
+          },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.google_event_id) {
+            const idx = updatedList.findIndex((item) => item.id === ev.id);
+            if (idx !== -1) {
+              updatedList[idx] = {
+                ...updatedList[idx],
+                google_event_id: data.google_event_id,
+              };
+              updatedAny = true;
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Erro ao sincronizar atividade da rotina com Google:", err);
+      } finally {
+        syncingRoutineIdsRef.current.delete(ev.id);
+      }
+    }
+
+    if (updatedAny) {
+      await updateConfig({ eventos_rotina_semanal: updatedList });
+    }
+  }, [integrado, config, currentWeekStartStr, callSync, getDateStrForDayIndex, updateConfig]);
+
+  useEffect(() => {
+    if (integrado) {
+      pushUnsyncedRoutineEvents();
+    }
+  }, [integrado, pushUnsyncedRoutineEvents]);
+
+  const handleSyncGoogle = async () => {
+    setSincronizando(true);
+    try {
+      await pullFromGoogle();
+      await pushUnsyncedRoutineEvents();
+    } catch (err) {
+      console.error("Erro ao sincronizar com Google Agenda:", err);
+    } finally {
+      setSincronizando(false);
+    }
+  };
 
   if (!config) return null;
 
@@ -36,7 +178,9 @@ export const RoutineGrid: React.FC = () => {
   const endHourStr = config.horario_fim_dia || "18:00";
   const interval = config.intervalo_rotina_minutos || 60;
   const tags = config.tags_rotina_semanal || {};
-  const eventos: EventoRotina[] = config.eventos_rotina_semanal || [];
+  const eventos: EventoRotina[] = (config.eventos_rotina_semanal || []).filter(
+    (e) => e.semana_inicio === currentWeekStartStr
+  );
 
   const parseTime = (timeStr: string) => {
     const [h, m] = timeStr.split(":").map(Number);
@@ -123,20 +267,105 @@ export const RoutineGrid: React.FC = () => {
 
   const handleSaveEvent = async () => {
     if (!editingEvent || !editingEvent.titulo?.trim()) return;
-    
-    let newEvents = [...eventos];
-    if (editingEvent.id) {
-      newEvents = newEvents.map(e => e.id === editingEvent.id ? editingEvent as EventoRotina : e);
-    } else {
-      newEvents.push({
-        ...editingEvent,
-        id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15)
-      } as EventoRotina);
+
+    // Caso seja um evento importado do calendário/Google (prefixo cal_)
+    if (editingEvent.id?.startsWith("cal_")) {
+      const calId = editingEvent.id.replace(/^cal_/, "");
+      try {
+        await updateEvento(calId, {
+          titulo: editingEvent.titulo.trim(),
+          cor: editingEvent.cor || COLORS[0],
+        });
+        setEditingEvent(null);
+      } catch (err) {
+        console.error("Erro ao atualizar evento sincronizado:", err);
+      }
+      return;
     }
-    
+
+    const isUpdate = Boolean(editingEvent.id);
+    const savedEvent: EventoRotina = {
+      id:
+        editingEvent.id ||
+        (typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : Math.random().toString(36).substring(2, 15)),
+      dia: editingEvent.dia ?? 0,
+      inicio_minutos: editingEvent.inicio_minutos ?? startTimeMin,
+      fim_minutos: editingEvent.fim_minutos ?? startTimeMin,
+      titulo: editingEvent.titulo.trim(),
+      cor: editingEvent.cor || COLORS[0],
+      semana_inicio: currentWeekStartStr,
+      google_event_id: editingEvent.google_event_id,
+      origem: editingEvent.origem || "manual",
+    };
+
+    let newEvents = [...eventos];
+    if (isUpdate) {
+      newEvents = newEvents.map((e) => (e.id === savedEvent.id ? savedEvent : e));
+    } else {
+      newEvents.push(savedEvent);
+    }
+
     try {
       await updateConfig({ eventos_rotina_semanal: newEvents });
       setEditingEvent(null);
+
+      // Sincronizar automaticamente com Google Agenda se estiver conectado
+      if (integrado) {
+        const eventDateStr = getDateStrForDayIndex(savedEvent.dia);
+        const startTimeHHMM = formatMinToTime(savedEvent.inicio_minutos);
+        const duracaoMin = savedEvent.fim_minutos - savedEvent.inicio_minutos + interval;
+
+        if (isUpdate && savedEvent.google_event_id) {
+          callSync({
+            action: "update",
+            evento: {
+              id: savedEvent.id,
+              titulo: savedEvent.titulo,
+              data: eventDateStr,
+              hora: startTimeHHMM,
+              duracao_minutos: duracaoMin,
+              cor: savedEvent.cor,
+              google_event_id: savedEvent.google_event_id,
+            },
+          }).catch((syncErr) =>
+            console.error("Erro ao atualizar atividade no Google Agenda:", syncErr)
+          );
+        } else if (!isUpdate) {
+          syncingRoutineIdsRef.current.add(savedEvent.id);
+          callSync({
+            action: "create",
+            evento: {
+              id: savedEvent.id,
+              titulo: savedEvent.titulo,
+              data: eventDateStr,
+              hora: startTimeHHMM,
+              duracao_minutos: duracaoMin,
+              cor: savedEvent.cor,
+            },
+          })
+            .then(async (res) => {
+              if (res.ok) {
+                const data = await res.json();
+                if (data.google_event_id) {
+                  const updatedWithGoogleId = newEvents.map((e) =>
+                    e.id === savedEvent.id
+                      ? { ...e, google_event_id: data.google_event_id }
+                      : e
+                  );
+                  await updateConfig({ eventos_rotina_semanal: updatedWithGoogleId });
+                }
+              }
+            })
+            .catch((syncErr) =>
+              console.error("Erro ao criar atividade no Google Agenda:", syncErr)
+            )
+            .finally(() => {
+              syncingRoutineIdsRef.current.delete(savedEvent.id);
+            });
+        }
+      }
     } catch (err) {
       console.error("Erro ao salvar evento:", err);
       alert("Erro ao salvar: Verifique se a coluna 'eventos_rotina_semanal' existe no banco de dados.");
@@ -144,10 +373,31 @@ export const RoutineGrid: React.FC = () => {
   };
 
   const handleDeleteEvent = async (id: string) => {
-    const newEvents = eventos.filter(e => e.id !== id);
+    if (id.startsWith("cal_")) {
+      const calId = id.replace(/^cal_/, "");
+      try {
+        await deleteEvento(calId);
+        setEditingEvent(null);
+      } catch (err) {
+        console.error("Erro ao remover evento sincronizado:", err);
+      }
+      return;
+    }
+
+    const eventToDelete = eventos.find((e) => e.id === id);
+    const newEvents = eventos.filter((e) => e.id !== id);
     try {
       await updateConfig({ eventos_rotina_semanal: newEvents });
       setEditingEvent(null);
+
+      if (integrado && eventToDelete?.google_event_id) {
+        callSync({
+          action: "delete",
+          google_event_id: eventToDelete.google_event_id,
+        }).catch((syncErr) =>
+          console.error("Erro ao remover atividade do Google Agenda:", syncErr)
+        );
+      }
     } catch (err) {
       console.error("Erro ao remover evento:", err);
     }
@@ -180,9 +430,46 @@ export const RoutineGrid: React.FC = () => {
 
   return (
     <Card className="mt-8 flex-1 overflow-hidden flex flex-col">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between gap-4 mb-4">
         <h2 className="text-headline-sm text-on-surface font-playfair">Quadro de Rotina</h2>
-        <p className="text-label-sm text-on-surface-variant">Clique ou arraste para adicionar atividades</p>
+        {integrado ? (
+          <button
+            type="button"
+            onClick={handleSyncGoogle}
+            disabled={sincronizando}
+            title={
+              emailGoogle
+                ? `Conectado a ${emailGoogle}. Clique para sincronizar agora.`
+                : "Clique para sincronizar atividades do Google Agenda"
+            }
+            className="flex items-center gap-2 px-3.5 py-1.5 bg-surface-variant hover:bg-surface-variant-high border border-outline-variant text-on-surface rounded-lg text-label-sm font-medium transition-colors disabled:opacity-50"
+          >
+            {sincronizando ? (
+              <RefreshCw size={15} className="animate-spin text-primary" />
+            ) : (
+              <CheckCircle2 size={15} className="text-green-600" />
+            )}
+            <span>
+              {sincronizando ? "Sincronizando..." : "Google Agenda Conectado"}
+            </span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={conectar}
+            disabled={conectando || googleCarregando}
+            className="flex items-center gap-2 px-3.5 py-1.5 bg-surface-variant hover:bg-surface-variant-high border border-outline-variant text-on-surface rounded-lg text-label-sm font-medium transition-colors disabled:opacity-50"
+          >
+            {conectando ? (
+              <Loader2 size={15} className="animate-spin text-primary" />
+            ) : (
+              <Calendar size={15} className="text-primary" />
+            )}
+            <span>
+              {conectando ? "Conectando..." : "Conectar ao Google Agenda"}
+            </span>
+          </button>
+        )}
       </div>
 
       <div className="overflow-x-auto border border-outline-variant rounded-lg bg-surface relative select-none">
@@ -192,9 +479,20 @@ export const RoutineGrid: React.FC = () => {
             <div className="w-16 flex-shrink-0 border-r border-outline-variant" /> 
             {DAYS_OF_WEEK.map((day, index) => {
               const tag = tags[index];
+              const isToday = index === todayDayIndex;
               return (
                 <div key={index} className="flex-1 flex flex-col min-w-0 border-r border-outline-variant last:border-r-0 p-2 items-center justify-center">
-                  <span className="text-label-sm font-semibold text-center text-on-surface mb-2">{day}</span>
+                  <div className="flex items-center justify-center gap-1.5 mb-2">
+                    <span className={`text-label-sm font-semibold text-center text-on-surface ${isToday ? "font-bold" : ""}`}>
+                      {day}
+                    </span>
+                    {isToday && (
+                      <span
+                        className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"
+                        title="Dia atual"
+                      />
+                    )}
+                  </div>
                   
                   {tag ? (
                     <div 
@@ -241,7 +539,38 @@ export const RoutineGrid: React.FC = () => {
             
             {/* Day columns */}
             {DAYS_OF_WEEK.map((_, dayIndex) => {
-              const dayEvents = eventos.filter(e => e.dia === dayIndex);
+              const dateStr = getDateStrForDayIndex(dayIndex);
+              const manualDayEvents = eventos.filter((e) => e.dia === dayIndex);
+
+              // Eventos com horário vindos do Google Agenda / Calendário na semana atual
+              const syncedDayEvents: EventoRotina[] = eventosCalendario
+                .filter(
+                  (ev) =>
+                    ev.data === dateStr &&
+                    ev.hora &&
+                    ev.hora.trim() !== "" &&
+                    !eventos.some(
+                      (re) =>
+                        (ev.google_event_id && re.google_event_id === ev.google_event_id) ||
+                        re.id === ev.id
+                    )
+                )
+                .map((ev) => {
+                  const startMin = parseTime(ev.hora!.slice(0, 5));
+                  return {
+                    id: `cal_${ev.id}`,
+                    dia: dayIndex,
+                    inicio_minutos: startMin,
+                    fim_minutos: startMin,
+                    titulo: ev.titulo,
+                    cor: ev.cor && ev.cor !== "#808080" ? ev.cor : "#457B9D",
+                    semana_inicio: currentWeekStartStr,
+                    google_event_id: ev.google_event_id,
+                    origem: "google" as const,
+                  };
+                });
+
+              const dayEvents = [...manualDayEvents, ...syncedDayEvents];
               
               return (
                 <div key={dayIndex} className="flex-1 relative border-r border-outline-variant last:border-r-0">
