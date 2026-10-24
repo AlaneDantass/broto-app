@@ -1,8 +1,18 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useConfiguracoes } from "../hooks/useConfiguracoes";
 import { useGoogleAgenda } from "../hooks/useGoogleAgenda";
 import { useEventosCalendario } from "../hooks/useEventosCalendario";
-import { Plus, X, Trash2, Calendar, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
+import {
+  Plus,
+  X,
+  Trash2,
+  Calendar,
+  CheckCircle2,
+  Loader2,
+  RefreshCw,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import { Card } from "./Card";
 import type { EventoRotina } from "../types/database";
 
@@ -23,6 +33,48 @@ const formatMinToTime = (totalMin: number) => {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 };
 
+const formatWeekRange = (start: Date, end: Date) => {
+  const startDay = start.getDate();
+  const endDay = end.getDate();
+  const startMonth = start.toLocaleDateString("pt-BR", { month: "short" }).replace(".", "");
+  const endMonth = end.toLocaleDateString("pt-BR", { month: "short" }).replace(".", "");
+  const startYear = start.getFullYear();
+  const endYear = end.getFullYear();
+
+  if (startYear !== endYear) {
+    return `${startDay} de ${startMonth} de ${startYear} – ${endDay} de ${endMonth} de ${endYear}`;
+  }
+  if (startMonth !== endMonth) {
+    return `${startDay} de ${startMonth} – ${endDay} de ${endMonth} de ${startYear}`;
+  }
+  return `${startDay} a ${endDay} de ${startMonth} de ${startYear}`;
+};
+
+// Helper para obter as tags da semana ativa, com fallback para formato legado no root na semana atual
+const getWeekTags = (
+  allTags: any,
+  weekStartStr: string,
+  isCurrentWeek: boolean
+): Record<number, { nome: string; cor: string }> => {
+  if (!allTags || typeof allTags !== "object") return {};
+  if (allTags[weekStartStr] && typeof allTags[weekStartStr] === "object") {
+    return allTags[weekStartStr];
+  }
+  // Se for a semana atual e existirem chaves legadas no root (0..6)
+  if (isCurrentWeek) {
+    const legacy: Record<number, { nome: string; cor: string }> = {};
+    let foundLegacy = false;
+    for (let i = 0; i < 7; i++) {
+      if (allTags[i] && allTags[i].nome) {
+        legacy[i] = allTags[i];
+        foundLegacy = true;
+      }
+    }
+    if (foundLegacy) return legacy;
+  }
+  return {};
+};
+
 export const RoutineGrid: React.FC = () => {
   const { config, updateConfig } = useConfiguracoes();
   const {
@@ -40,6 +92,7 @@ export const RoutineGrid: React.FC = () => {
     pullFromGoogle,
   } = useEventosCalendario();
   
+  const [weekOffset, setWeekOffset] = useState(0);
   const [editingDay, setEditingDay] = useState<number | null>(null);
   const [tagName, setTagName] = useState("");
   const [tagColor, setTagColor] = useState(COLORS[0]);
@@ -51,61 +104,75 @@ export const RoutineGrid: React.FC = () => {
   const [editingEvent, setEditingEvent] = useState<Partial<EventoRotina> | null>(null);
   const [sincronizando, setSincronizando] = useState(false);
 
-  const cleaningWeekRef = useRef<string | null>(null);
+  // Minuto atual do dia para a linha em tempo real
+  const [currentTimeMin, setCurrentTimeMin] = useState(() => {
+    const now = new Date();
+    return now.getHours() * 60 + now.getMinutes();
+  });
+
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date();
+      setCurrentTimeMin(now.getHours() * 60 + now.getMinutes());
+    };
+    updateTime();
+    const intervalId = setInterval(updateTime, 60000);
+    return () => clearInterval(intervalId);
+  }, []);
+
   const syncingRoutineIdsRef = useRef<Set<string>>(new Set());
 
-  const today = new Date();
+  const today = useMemo(() => new Date(), []);
   const todayDayIndex = today.getDay();
-  const startOfWeek = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate() - todayDayIndex
+
+  // Início e fim da semana selecionada
+  const selectedWeekStart = useMemo(() => {
+    return new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate() - todayDayIndex + weekOffset * 7
+    );
+  }, [today, todayDayIndex, weekOffset]);
+
+  const selectedWeekEnd = useMemo(() => {
+    return new Date(
+      selectedWeekStart.getFullYear(),
+      selectedWeekStart.getMonth(),
+      selectedWeekStart.getDate() + 6
+    );
+  }, [selectedWeekStart]);
+
+  const selectedWeekStartStr = useMemo(
+    () => formatDateYYYYMMDD(selectedWeekStart),
+    [selectedWeekStart]
   );
-  const currentWeekStartStr = formatDateYYYYMMDD(startOfWeek);
+
+  const getDateForDayIndex = useCallback(
+    (dayIndex: number) => {
+      return new Date(
+        selectedWeekStart.getFullYear(),
+        selectedWeekStart.getMonth(),
+        selectedWeekStart.getDate() + dayIndex
+      );
+    },
+    [selectedWeekStart]
+  );
 
   const getDateStrForDayIndex = useCallback(
     (dayIndex: number) => {
-      const d = new Date(
-        today.getFullYear(),
-        today.getMonth(),
-        today.getDate() - todayDayIndex + dayIndex
-      );
-      return formatDateYYYYMMDD(d);
+      return formatDateYYYYMMDD(getDateForDayIndex(dayIndex));
     },
-    [today.getFullYear(), today.getMonth(), today.getDate(), todayDayIndex]
+    [getDateForDayIndex]
   );
 
-  // Limpeza automática dos horários quando muda a semana
-  useEffect(() => {
-    if (!config) return;
-    const rawEventos: EventoRotina[] = config.eventos_rotina_semanal || [];
-    if (rawEventos.length === 0) return;
-
-    const currentWeekEventos = rawEventos.filter(
-      (e) => e.semana_inicio === currentWeekStartStr
-    );
-
-    if (
-      currentWeekEventos.length !== rawEventos.length &&
-      cleaningWeekRef.current !== currentWeekStartStr
-    ) {
-      cleaningWeekRef.current = currentWeekStartStr;
-      updateConfig({ eventos_rotina_semanal: currentWeekEventos }).catch((err) => {
-        console.error("Erro ao limpar atividades da semana anterior:", err);
-        cleaningWeekRef.current = null;
-      });
-    }
-  }, [config, currentWeekStartStr, updateConfig]);
-
-  // Sincroniza atividades manuais da semana atual que ainda não possuem google_event_id quando conectado
+  // Sincroniza atividades manuais da semana selecionada que ainda não possuem google_event_id quando conectado
   const pushUnsyncedRoutineEvents = useCallback(async () => {
     if (!integrado || !config) return;
     const intervalMin = config.intervalo_rotina_minutos || 60;
-    const currentWeekEventos = (config.eventos_rotina_semanal || []).filter(
-      (e) => e.semana_inicio === currentWeekStartStr
-    );
-    const unsynced = currentWeekEventos.filter(
+    const allEvents = config.eventos_rotina_semanal || [];
+    const unsynced = allEvents.filter(
       (e) =>
+        e.semana_inicio === selectedWeekStartStr &&
         !e.google_event_id &&
         e.origem !== "google" &&
         !syncingRoutineIdsRef.current.has(e.id)
@@ -113,7 +180,7 @@ export const RoutineGrid: React.FC = () => {
     if (unsynced.length === 0) return;
 
     let updatedAny = false;
-    const updatedList = [...currentWeekEventos];
+    const updatedList = [...allEvents];
 
     for (const ev of unsynced) {
       syncingRoutineIdsRef.current.add(ev.id);
@@ -152,7 +219,7 @@ export const RoutineGrid: React.FC = () => {
     if (updatedAny) {
       await updateConfig({ eventos_rotina_semanal: updatedList });
     }
-  }, [integrado, config, currentWeekStartStr, callSync, getDateStrForDayIndex, updateConfig]);
+  }, [integrado, config, selectedWeekStartStr, callSync, getDateStrForDayIndex, updateConfig]);
 
   useEffect(() => {
     if (integrado) {
@@ -177,9 +244,17 @@ export const RoutineGrid: React.FC = () => {
   const startHourStr = config.horario_inicio_dia || "08:00";
   const endHourStr = config.horario_fim_dia || "18:00";
   const interval = config.intervalo_rotina_minutos || 60;
-  const tags = config.tags_rotina_semanal || {};
-  const eventos: EventoRotina[] = (config.eventos_rotina_semanal || []).filter(
-    (e) => e.semana_inicio === currentWeekStartStr
+  
+  // Tags isoladas por semana
+  const activeTags = getWeekTags(
+    config.tags_rotina_semanal,
+    selectedWeekStartStr,
+    weekOffset === 0
+  );
+
+  const allRoutineEvents: EventoRotina[] = config.eventos_rotina_semanal || [];
+  const eventos: EventoRotina[] = allRoutineEvents.filter(
+    (e) => e.semana_inicio === selectedWeekStartStr
   );
 
   const parseTime = (timeStr: string) => {
@@ -200,23 +275,33 @@ export const RoutineGrid: React.FC = () => {
 
   const handleSaveTag = async () => {
     if (editingDay === null) return;
-    const newTags = { ...tags };
+    const rawAll = { ...(config.tags_rotina_semanal || {}) };
+    const currentWeekTags = { ...activeTags };
+
     if (tagName.trim() === "") {
-      delete newTags[editingDay];
+      delete currentWeekTags[editingDay];
     } else {
-      newTags[editingDay] = { nome: tagName.trim(), cor: tagColor };
+      currentWeekTags[editingDay] = { nome: tagName.trim(), cor: tagColor };
     }
+
+    // Se existirem chaves legadas no root (0..6), limpamos para não sobrepor outras semanas
+    for (let i = 0; i < 7; i++) {
+      delete rawAll[i];
+    }
+
+    rawAll[selectedWeekStartStr] = currentWeekTags;
+
     try {
-      await updateConfig({ tags_rotina_semanal: newTags });
+      await updateConfig({ tags_rotina_semanal: rawAll });
       setEditingDay(null);
     } catch (err) {
-      console.error("Erro ao salvar tag:", err);
+      console.error("Erro ao salvar palavra-chave:", err);
     }
   };
 
   const openTagEditor = (dayIndex: number) => {
     setEditingDay(dayIndex);
-    const existing = tags[dayIndex];
+    const existing = activeTags[dayIndex];
     if (existing) {
       setTagName(existing.nome);
       setTagColor(existing.cor);
@@ -295,20 +380,20 @@ export const RoutineGrid: React.FC = () => {
       fim_minutos: editingEvent.fim_minutos ?? startTimeMin,
       titulo: editingEvent.titulo.trim(),
       cor: editingEvent.cor || COLORS[0],
-      semana_inicio: currentWeekStartStr,
+      semana_inicio: selectedWeekStartStr,
       google_event_id: editingEvent.google_event_id,
       origem: editingEvent.origem || "manual",
     };
 
-    let newEvents = [...eventos];
+    let updatedAllEvents = [...allRoutineEvents];
     if (isUpdate) {
-      newEvents = newEvents.map((e) => (e.id === savedEvent.id ? savedEvent : e));
+      updatedAllEvents = updatedAllEvents.map((e) => (e.id === savedEvent.id ? savedEvent : e));
     } else {
-      newEvents.push(savedEvent);
+      updatedAllEvents.push(savedEvent);
     }
 
     try {
-      await updateConfig({ eventos_rotina_semanal: newEvents });
+      await updateConfig({ eventos_rotina_semanal: updatedAllEvents });
       setEditingEvent(null);
 
       // Sincronizar automaticamente com Google Agenda se estiver conectado
@@ -349,7 +434,7 @@ export const RoutineGrid: React.FC = () => {
               if (res.ok) {
                 const data = await res.json();
                 if (data.google_event_id) {
-                  const updatedWithGoogleId = newEvents.map((e) =>
+                  const updatedWithGoogleId = updatedAllEvents.map((e) =>
                     e.id === savedEvent.id
                       ? { ...e, google_event_id: data.google_event_id }
                       : e
@@ -384,10 +469,10 @@ export const RoutineGrid: React.FC = () => {
       return;
     }
 
-    const eventToDelete = eventos.find((e) => e.id === id);
-    const newEvents = eventos.filter((e) => e.id !== id);
+    const eventToDelete = allRoutineEvents.find((e) => e.id === id);
+    const updatedAllEvents = allRoutineEvents.filter((e) => e.id !== id);
     try {
-      await updateConfig({ eventos_rotina_semanal: newEvents });
+      await updateConfig({ eventos_rotina_semanal: updatedAllEvents });
       setEditingEvent(null);
 
       if (integrado && eventToDelete?.google_event_id) {
@@ -430,8 +515,51 @@ export const RoutineGrid: React.FC = () => {
 
   return (
     <Card className="mt-8 flex-1 overflow-hidden flex flex-col">
-      <div className="flex items-center justify-between gap-4 mb-4">
-        <h2 className="text-headline-sm text-on-surface font-playfair">Quadro de Rotina</h2>
+      {/* Header com Título, Navegação de Semanas e Google Agenda */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+          <h2 className="text-headline-sm text-on-surface font-playfair">Quadro de Rotina</h2>
+
+          {/* Controles de Navegação de Semana */}
+          <div className="flex items-center gap-2 bg-surface-variant/40 rounded-lg p-1 border border-outline-variant">
+            <button
+              type="button"
+              onClick={() => setWeekOffset((prev) => prev - 1)}
+              className="p-1 hover:bg-surface rounded text-on-surface-variant hover:text-on-surface transition-colors"
+              title="Semana anterior"
+              aria-label="Semana anterior"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <span className="text-label-sm font-medium text-on-surface px-1 min-w-[130px] sm:min-w-[170px] text-center select-none">
+              {formatWeekRange(selectedWeekStart, selectedWeekEnd)}
+            </span>
+            <button
+              type="button"
+              onClick={() => setWeekOffset(0)}
+              disabled={weekOffset === 0}
+              className={`px-2 py-0.5 text-label-xs font-semibold rounded transition-colors ${
+                weekOffset === 0
+                  ? "text-on-surface-variant/40 cursor-default"
+                  : "bg-primary text-on-primary hover:opacity-90 shadow-xs"
+              }`}
+              title="Voltar para a semana atual"
+            >
+              Hoje
+            </button>
+            <button
+              type="button"
+              onClick={() => setWeekOffset((prev) => prev + 1)}
+              className="p-1 hover:bg-surface rounded text-on-surface-variant hover:text-on-surface transition-colors"
+              title="Próxima semana"
+              aria-label="Próxima semana"
+            >
+              <ChevronRight size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Botão de Integração com Google Agenda */}
         {integrado ? (
           <button
             type="button"
@@ -442,7 +570,7 @@ export const RoutineGrid: React.FC = () => {
                 ? `Conectado a ${emailGoogle}. Clique para sincronizar agora.`
                 : "Clique para sincronizar atividades do Google Agenda"
             }
-            className="flex items-center gap-2 px-3.5 py-1.5 bg-surface-variant hover:bg-surface-variant-high border border-outline-variant text-on-surface rounded-lg text-label-sm font-medium transition-colors disabled:opacity-50"
+            className="self-start md:self-auto flex items-center gap-2 px-3.5 py-1.5 bg-surface-variant hover:bg-surface-variant-high border border-outline-variant text-on-surface rounded-lg text-label-sm font-medium transition-colors disabled:opacity-50"
           >
             {sincronizando ? (
               <RefreshCw size={15} className="animate-spin text-primary" />
@@ -458,7 +586,7 @@ export const RoutineGrid: React.FC = () => {
             type="button"
             onClick={conectar}
             disabled={conectando || googleCarregando}
-            className="flex items-center gap-2 px-3.5 py-1.5 bg-surface-variant hover:bg-surface-variant-high border border-outline-variant text-on-surface rounded-lg text-label-sm font-medium transition-colors disabled:opacity-50"
+            className="self-start md:self-auto flex items-center gap-2 px-3.5 py-1.5 bg-surface-variant hover:bg-surface-variant-high border border-outline-variant text-on-surface rounded-lg text-label-sm font-medium transition-colors disabled:opacity-50"
           >
             {conectando ? (
               <Loader2 size={15} className="animate-spin text-primary" />
@@ -478,17 +606,20 @@ export const RoutineGrid: React.FC = () => {
           <div className="flex border-b border-outline-variant bg-surface-container-low sticky top-0 z-10">
             <div className="w-16 flex-shrink-0 border-r border-outline-variant" /> 
             {DAYS_OF_WEEK.map((day, index) => {
-              const tag = tags[index];
-              const isToday = index === todayDayIndex;
+              const tag = activeTags[index];
+              const isToday = weekOffset === 0 && index === todayDayIndex;
+              const dayDate = getDateForDayIndex(index);
+              const dayNum = dayDate.getDate();
+
               return (
                 <div key={index} className="flex-1 flex flex-col min-w-0 border-r border-outline-variant last:border-r-0 p-2 items-center justify-center">
                   <div className="flex items-center justify-center gap-1.5 mb-2">
-                    <span className={`text-label-sm font-semibold text-center text-on-surface ${isToday ? "font-bold" : ""}`}>
-                      {day}
+                    <span className={`text-label-sm font-semibold text-center text-on-surface ${isToday ? "font-bold text-primary" : ""}`}>
+                      {day} <span className="text-[11px] font-normal text-on-surface-variant">({dayNum})</span>
                     </span>
                     {isToday && (
                       <span
-                        className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"
+                        className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0 animate-pulse"
                         title="Dia atual"
                       />
                     )}
@@ -503,7 +634,7 @@ export const RoutineGrid: React.FC = () => {
                         borderColor: `${tag.cor}44`,
                         color: tag.cor
                       }}
-                      title="Editar palavra-chave"
+                      title="Editar foco do dia"
                     >
                       <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: tag.cor }} />
                       <span className="truncate">{tag.nome}</span>
@@ -512,7 +643,7 @@ export const RoutineGrid: React.FC = () => {
                     <button
                       onClick={() => openTagEditor(index)}
                       className="mx-auto flex items-center justify-center w-6 h-6 rounded-full border border-dashed border-outline-variant text-on-surface-variant hover:text-primary hover:border-primary hover:bg-primary-container transition-all"
-                      title="Adicionar palavra-chave"
+                      title="Adicionar foco do dia"
                     >
                       <Plus size={14} />
                     </button>
@@ -540,9 +671,10 @@ export const RoutineGrid: React.FC = () => {
             {/* Day columns */}
             {DAYS_OF_WEEK.map((_, dayIndex) => {
               const dateStr = getDateStrForDayIndex(dayIndex);
+              const isToday = weekOffset === 0 && dayIndex === todayDayIndex;
               const manualDayEvents = eventos.filter((e) => e.dia === dayIndex);
 
-              // Eventos com horário vindos do Google Agenda / Calendário na semana atual
+              // Eventos com horário vindos do Google Agenda / Calendário na data correspondente
               const syncedDayEvents: EventoRotina[] = eventosCalendario
                 .filter(
                   (ev) =>
@@ -564,13 +696,19 @@ export const RoutineGrid: React.FC = () => {
                     fim_minutos: startMin,
                     titulo: ev.titulo,
                     cor: ev.cor && ev.cor !== "#808080" ? ev.cor : "#457B9D",
-                    semana_inicio: currentWeekStartStr,
+                    semana_inicio: selectedWeekStartStr,
                     google_event_id: ev.google_event_id,
                     origem: "google" as const,
                   };
                 });
 
               const dayEvents = [...manualDayEvents, ...syncedDayEvents];
+
+              // Posição da barra de tempo atual em tempo real (estilo Google Agenda)
+              const currentLineTop = ((currentTimeMin - startTimeMin) / interval) * 58;
+              const maxGridTop = timeSlots.length * 58;
+              const showCurrentTimeLine =
+                isToday && currentLineTop >= 0 && currentLineTop <= maxGridTop;
               
               return (
                 <div key={dayIndex} className="flex-1 relative border-r border-outline-variant last:border-r-0">
@@ -584,8 +722,21 @@ export const RoutineGrid: React.FC = () => {
                         onMouseDown={(e) => handleMouseDown(dayIndex, cellTimeMin, e)}
                         onMouseEnter={() => handleMouseEnter(dayIndex, cellTimeMin)}
                       />
-                    )
+                    );
                   })}
+
+                  {/* Linha vermelha de tempo atual estilo Google Calendar */}
+                  {showCurrentTimeLine && (
+                    <div
+                      className="absolute left-0 right-0 z-20 pointer-events-none flex items-center"
+                      style={{ top: `${currentLineTop}px` }}
+                    >
+                      {/* Círculo indicador na borda esquerda */}
+                      <div className="w-2.5 h-2.5 rounded-full bg-red-500 -ml-[5px] flex-shrink-0 shadow-sm" />
+                      {/* Linha vermelha horizontal atravessando o dia */}
+                      <div className="flex-1 h-[2px] bg-red-500 shadow-sm" />
+                    </div>
+                  )}
 
                   {/* Render Events */}
                   {dayEvents.map(evento => {
@@ -613,7 +764,7 @@ export const RoutineGrid: React.FC = () => {
                           {evento.titulo}
                         </span>
                       </div>
-                    )
+                    );
                   })}
 
                   {/* Render Selection */}
@@ -630,7 +781,7 @@ export const RoutineGrid: React.FC = () => {
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 animate-in fade-in">
           <div className="bg-surface rounded-xl shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-title-md text-on-surface">Palavra-chave - {DAYS_OF_WEEK[editingDay]}</h3>
+              <h3 className="text-title-md text-on-surface">Foco do dia - {DAYS_OF_WEEK[editingDay]}</h3>
               <button onClick={() => setEditingDay(null)} className="text-on-surface-variant hover:text-on-surface">
                 <X size={20} />
               </button>
@@ -643,7 +794,7 @@ export const RoutineGrid: React.FC = () => {
                   type="text"
                   value={tagName}
                   onChange={e => setTagName(e.target.value)}
-                  placeholder="Ex: Estudos POO"
+                  placeholder="Ex: Softs-Skils / Aria / IA eng..."
                   className="w-full px-3 py-2 bg-surface border border-outline rounded-lg text-body-md text-on-surface focus:border-primary focus:outline-none"
                   autoFocus
                 />
