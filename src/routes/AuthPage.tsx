@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { Logo } from "../components/Logo";
 import { useLanguage } from "../contexts/LanguageContext";
@@ -238,6 +238,17 @@ export const AuthPage: React.FC = () => {
             >
               {mode === "login" ? t("auth.noAccount") : t("auth.hasAccount")}
             </button>
+          </div>
+
+          {/* Links legais */}
+          <div className="mt-6 flex items-center justify-center gap-4 text-label-sm text-on-surface-variant font-dm-sans">
+            <Link to="/privacidade" className="hover:underline">
+              Política de Privacidade
+            </Link>
+            <span aria-hidden="true">•</span>
+            <Link to="/termos" className="hover:underline">
+              Termos de Serviço
+            </Link>
           </div>
         </div>
       </div>
