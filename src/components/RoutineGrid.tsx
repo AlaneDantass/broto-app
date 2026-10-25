@@ -12,6 +12,7 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
+  Clock,
 } from "lucide-react";
 import { Card } from "./Card";
 import type { EventoRotina } from "../types/database";
@@ -22,6 +23,19 @@ const COLORS = [
 ];
 
 const DAYS_OF_WEEK = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+
+const SNAP_MINUTES = 15;
+const SLOT_HEIGHT_PX = 58;
+
+interface ResizeState {
+  eventId: string;
+  edge: "bottom" | "top";
+  startY: number;
+  initialStartMin: number;
+  initialEndClockMin: number;
+  currentStartMin: number;
+  currentEndClockMin: number;
+}
 
 const formatDateYYYYMMDD = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -103,6 +117,11 @@ export const RoutineGrid: React.FC = () => {
   
   const [editingEvent, setEditingEvent] = useState<Partial<EventoRotina> | null>(null);
   const [sincronizando, setSincronizando] = useState(false);
+
+  // Estado de redimensionamento estilo Google Agenda (arrastar borda + efeito imã de 15 min)
+  const [resizingEvent, setResizingEvent] = useState<ResizeState | null>(null);
+  const resizingRef = useRef<ResizeState | null>(null);
+  const justResizedRef = useRef<boolean>(false);
 
   // Minuto atual do dia para a linha em tempo real
   const [currentTimeMin, setCurrentTimeMin] = useState(() => {
@@ -239,23 +258,9 @@ export const RoutineGrid: React.FC = () => {
     }
   };
 
-  if (!config) return null;
-
-  const startHourStr = config.horario_inicio_dia || "08:00";
-  const endHourStr = config.horario_fim_dia || "18:00";
-  const interval = config.intervalo_rotina_minutos || 60;
-  
-  // Tags isoladas por semana
-  const activeTags = getWeekTags(
-    config.tags_rotina_semanal,
-    selectedWeekStartStr,
-    weekOffset === 0
-  );
-
-  const allRoutineEvents: EventoRotina[] = config.eventos_rotina_semanal || [];
-  const eventos: EventoRotina[] = allRoutineEvents.filter(
-    (e) => e.semana_inicio === selectedWeekStartStr
-  );
+  const startHourStr = config?.horario_inicio_dia || "08:00";
+  const endHourStr = config?.horario_fim_dia || "18:00";
+  const interval = config?.intervalo_rotina_minutos || 60;
 
   const parseTime = (timeStr: string) => {
     const [h, m] = timeStr.split(":").map(Number);
@@ -264,7 +269,248 @@ export const RoutineGrid: React.FC = () => {
 
   const startTimeMin = parseTime(startHourStr);
   let endTimeMin = parseTime(endHourStr);
-  if (endTimeMin <= startTimeMin) endTimeMin += 24 * 60; 
+  if (endTimeMin <= startTimeMin) endTimeMin += 24 * 60;
+
+  const allRoutineEvents: EventoRotina[] = config?.eventos_rotina_semanal || [];
+  const eventos: EventoRotina[] = allRoutineEvents.filter(
+    (e) => e.semana_inicio === selectedWeekStartStr
+  );
+
+  // Ref com contexto atualizado para o listener de redimensionamento ("Soltou, tá salvo")
+  const resizeContextRef = useRef({
+    interval,
+    startTimeMin,
+    endTimeMin,
+    allRoutineEvents,
+    eventosCalendario,
+    integrado,
+    selectedWeekStartStr,
+    updateConfig,
+    updateEvento,
+    callSync,
+    getDateStrForDayIndex,
+  });
+
+  useEffect(() => {
+    resizeContextRef.current = {
+      interval,
+      startTimeMin,
+      endTimeMin,
+      allRoutineEvents,
+      eventosCalendario,
+      integrado,
+      selectedWeekStartStr,
+      updateConfig,
+      updateEvento,
+      callSync,
+      getDateStrForDayIndex,
+    };
+  });
+
+  const isResizingActive = Boolean(resizingEvent);
+
+  // Listeners globais para o arraste de redimensionamento com efeito imã de 15 em 15 minutos
+  useEffect(() => {
+    if (!isResizingActive) return;
+
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      const current = resizingRef.current;
+      if (!current) return;
+
+      const {
+        interval: curInterval,
+        startTimeMin: curStartMin,
+        endTimeMin: curEndMin,
+      } = resizeContextRef.current;
+
+      // 2. O Arrastão: diferença em pixels entre onde o mouse está agora e onde começou
+      const deltaY = e.clientY - current.startY;
+      const rawDeltaMinutes = (deltaY / SLOT_HEIGHT_PX) * curInterval;
+
+      // 3. O "Efeito Imã": saltos de 15 em 15 minutos para não quebrar o horário
+      const snappedDeltaMinutes =
+        Math.round(rawDeltaMinutes / SNAP_MINUTES) * SNAP_MINUTES;
+
+      let newStartMin = current.initialStartMin;
+      let newEndClockMin = current.initialEndClockMin;
+
+      if (current.edge === "bottom") {
+        newEndClockMin = current.initialEndClockMin + snappedDeltaMinutes;
+        newEndClockMin = Math.max(
+          current.initialStartMin + SNAP_MINUTES,
+          newEndClockMin
+        );
+        newEndClockMin = Math.min(curEndMin, newEndClockMin);
+      } else {
+        newStartMin = current.initialStartMin + snappedDeltaMinutes;
+        newStartMin = Math.min(
+          current.initialEndClockMin - SNAP_MINUTES,
+          newStartMin
+        );
+        newStartMin = Math.max(curStartMin, newStartMin);
+      }
+
+      if (
+        newStartMin !== current.currentStartMin ||
+        newEndClockMin !== current.currentEndClockMin
+      ) {
+        const nextState: ResizeState = {
+          ...current,
+          currentStartMin: newStartMin,
+          currentEndClockMin: newEndClockMin,
+        };
+        resizingRef.current = nextState;
+        setResizingEvent(nextState);
+      }
+    };
+
+    // 4. O "Soltou, tá salvo": desliga o rastreador e salva no banco/Google Agenda
+    const handleGlobalMouseUp = async () => {
+      const finished = resizingRef.current;
+      resizingRef.current = null;
+      setResizingEvent(null);
+      justResizedRef.current = true;
+      setTimeout(() => {
+        justResizedRef.current = false;
+      }, 150);
+
+      if (!finished) return;
+
+      if (
+        finished.currentStartMin === finished.initialStartMin &&
+        finished.currentEndClockMin === finished.initialEndClockMin
+      ) {
+        return;
+      }
+
+      const {
+        interval: curInterval,
+        allRoutineEvents: curAllEvents,
+        eventosCalendario: curCalEvents,
+        integrado: curIntegrado,
+        selectedWeekStartStr: curWeekStr,
+        updateConfig: curUpdateConfig,
+        updateEvento: curUpdateEvento,
+        callSync: curCallSync,
+        getDateStrForDayIndex: curGetDateStr,
+      } = resizeContextRef.current;
+
+      const newInicioMinutos = finished.currentStartMin;
+      const newFimMinutos = finished.currentEndClockMin - curInterval;
+      const duracaoMin = finished.currentEndClockMin - finished.currentStartMin;
+
+      const existingRoutineEvent = curAllEvents.find(
+        (ev) => ev.id === finished.eventId
+      );
+
+      if (existingRoutineEvent) {
+        const updatedEvent: EventoRotina = {
+          ...existingRoutineEvent,
+          inicio_minutos: newInicioMinutos,
+          fim_minutos: newFimMinutos,
+        };
+        const updatedAll = curAllEvents.map((ev) =>
+          ev.id === updatedEvent.id ? updatedEvent : ev
+        );
+
+        try {
+          await curUpdateConfig({ eventos_rotina_semanal: updatedAll });
+
+          if (curIntegrado && updatedEvent.google_event_id) {
+            const eventDateStr = curGetDateStr(updatedEvent.dia);
+            const startTimeHHMM = formatMinToTime(updatedEvent.inicio_minutos);
+            curCallSync({
+              action: "update",
+              evento: {
+                id: updatedEvent.id,
+                titulo: updatedEvent.titulo,
+                data: eventDateStr,
+                hora: startTimeHHMM,
+                duracao_minutos: duracaoMin,
+                cor: updatedEvent.cor,
+                google_event_id: updatedEvent.google_event_id,
+              },
+            }).catch((err) =>
+              console.error(
+                "Erro ao atualizar horário da atividade no Google Agenda:",
+                err
+              )
+            );
+          }
+        } catch (err) {
+          console.error("Erro ao salvar novo horário da atividade:", err);
+        }
+      } else if (finished.eventId.startsWith("cal_")) {
+        const calId = finished.eventId.replace(/^cal_/, "");
+        const calEv = curCalEvents.find((e) => e.id === calId);
+        if (calEv) {
+          const dayIdx = DAYS_OF_WEEK.findIndex(
+            (_, idx) => curGetDateStr(idx) === calEv.data
+          );
+          const promotedEvent: EventoRotina = {
+            id: calEv.id,
+            dia: dayIdx !== -1 ? dayIdx : 0,
+            inicio_minutos: newInicioMinutos,
+            fim_minutos: newFimMinutos,
+            titulo: calEv.titulo,
+            cor: calEv.cor && calEv.cor !== "#808080" ? calEv.cor : "#457B9D",
+            semana_inicio: curWeekStr,
+            google_event_id: calEv.google_event_id,
+            origem: "google",
+          };
+          const updatedAll = [...curAllEvents, promotedEvent];
+          try {
+            await curUpdateConfig({ eventos_rotina_semanal: updatedAll });
+            if (newInicioMinutos !== finished.initialStartMin) {
+              await curUpdateEvento(calEv.id, {
+                hora: formatMinToTime(newInicioMinutos),
+              });
+            }
+            if (curIntegrado && calEv.google_event_id) {
+              curCallSync({
+                action: "update",
+                evento: {
+                  id: calEv.id,
+                  titulo: calEv.titulo,
+                  data: calEv.data,
+                  hora: formatMinToTime(newInicioMinutos),
+                  duracao_minutos: duracaoMin,
+                  cor: promotedEvent.cor,
+                  google_event_id: calEv.google_event_id,
+                },
+              }).catch((err) =>
+                console.error(
+                  "Erro ao atualizar duração no Google Agenda:",
+                  err
+                )
+              );
+            }
+          } catch (err) {
+            console.error(
+              "Erro ao salvar evento sincronizado redimensionado:",
+              err
+            );
+          }
+        }
+      }
+    };
+
+    window.addEventListener("mousemove", handleGlobalMouseMove);
+    window.addEventListener("mouseup", handleGlobalMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleGlobalMouseMove);
+      window.removeEventListener("mouseup", handleGlobalMouseUp);
+    };
+  }, [isResizingActive]);
+
+  if (!config) return null;
+
+  // Tags isoladas por semana
+  const activeTags = getWeekTags(
+    config.tags_rotina_semanal,
+    selectedWeekStartStr,
+    weekOffset === 0
+  );
 
   const timeSlots: string[] = [];
   for (let current = startTimeMin; current < endTimeMin; current += interval) {
@@ -311,7 +557,34 @@ export const RoutineGrid: React.FC = () => {
     }
   };
 
+  // 1. O Clique (O "Segura aqui"): inicia o modo de redimensionamento na borda
+  const handleResizeStart = (
+    evento: EventoRotina,
+    edge: "bottom" | "top",
+    e: React.MouseEvent
+  ) => {
+    e.stopPropagation();
+    e.preventDefault();
+
+    const initialStartMin = evento.inicio_minutos;
+    const initialEndClockMin = evento.fim_minutos + interval;
+
+    const initialState: ResizeState = {
+      eventId: evento.id,
+      edge,
+      startY: e.clientY,
+      initialStartMin,
+      initialEndClockMin,
+      currentStartMin: initialStartMin,
+      currentEndClockMin: initialEndClockMin,
+    };
+
+    resizingRef.current = initialState;
+    setResizingEvent(initialState);
+  };
+
   const handleMouseDown = (day: number, min: number, e: React.MouseEvent) => {
+    if (resizingRef.current) return;
     if (e.ctrlKey || e.metaKey) {
       setIsDragging(true);
       setSelectionStart({ day, min });
@@ -356,11 +629,54 @@ export const RoutineGrid: React.FC = () => {
     // Caso seja um evento importado do calendário/Google (prefixo cal_)
     if (editingEvent.id?.startsWith("cal_")) {
       const calId = editingEvent.id.replace(/^cal_/, "");
+      const calEv = eventosCalendario.find((e) => e.id === calId);
+      const newInicio = editingEvent.inicio_minutos ?? startTimeMin;
+      const newFim = editingEvent.fim_minutos ?? newInicio;
+      const duracaoMin = Math.max(SNAP_MINUTES, newFim - newInicio + interval);
+
       try {
         await updateEvento(calId, {
           titulo: editingEvent.titulo.trim(),
           cor: editingEvent.cor || COLORS[0],
+          hora: formatMinToTime(newInicio),
         });
+
+        // Promove/atualiza também na rotina semanal para preservar a duração customizada
+        const promoted: EventoRotina = {
+          id: calId,
+          dia: editingEvent.dia ?? 0,
+          inicio_minutos: newInicio,
+          fim_minutos: newFim,
+          titulo: editingEvent.titulo.trim(),
+          cor: editingEvent.cor || COLORS[0],
+          semana_inicio: selectedWeekStartStr,
+          google_event_id: calEv?.google_event_id,
+          origem: "google",
+        };
+        const existsIdx = allRoutineEvents.findIndex((e) => e.id === calId);
+        const updatedAll =
+          existsIdx !== -1
+            ? allRoutineEvents.map((e) => (e.id === calId ? promoted : e))
+            : [...allRoutineEvents, promoted];
+        await updateConfig({ eventos_rotina_semanal: updatedAll });
+
+        if (integrado && calEv?.google_event_id) {
+          callSync({
+            action: "update",
+            evento: {
+              id: calId,
+              titulo: promoted.titulo,
+              data: getDateStrForDayIndex(promoted.dia),
+              hora: formatMinToTime(newInicio),
+              duracao_minutos: duracaoMin,
+              cor: promoted.cor,
+              google_event_id: calEv.google_event_id,
+            },
+          }).catch((err) =>
+            console.error("Erro ao sincronizar evento no Google Agenda:", err)
+          );
+        }
+
         setEditingEvent(null);
       } catch (err) {
         console.error("Erro ao atualizar evento sincronizado:", err);
@@ -369,6 +685,12 @@ export const RoutineGrid: React.FC = () => {
     }
 
     const isUpdate = Boolean(editingEvent.id);
+    const startMin = editingEvent.inicio_minutos ?? startTimeMin;
+    const endMin =
+      editingEvent.fim_minutos !== undefined
+        ? Math.max(startMin + SNAP_MINUTES - interval, editingEvent.fim_minutos)
+        : startMin;
+
     const savedEvent: EventoRotina = {
       id:
         editingEvent.id ||
@@ -376,8 +698,8 @@ export const RoutineGrid: React.FC = () => {
           ? crypto.randomUUID()
           : Math.random().toString(36).substring(2, 15)),
       dia: editingEvent.dia ?? 0,
-      inicio_minutos: editingEvent.inicio_minutos ?? startTimeMin,
-      fim_minutos: editingEvent.fim_minutos ?? startTimeMin,
+      inicio_minutos: startMin,
+      fim_minutos: endMin,
       titulo: editingEvent.titulo.trim(),
       cor: editingEvent.cor || COLORS[0],
       semana_inicio: selectedWeekStartStr,
@@ -493,23 +815,30 @@ export const RoutineGrid: React.FC = () => {
     setEditingEvent(evento);
   };
 
-  const getTop = (min: number) => ((min - startTimeMin) / interval) * 58;
-  const getHeight = (start: number, end: number) => ((end - start + interval) / interval) * 58;
+  const getTop = (min: number) => ((min - startTimeMin) / interval) * SLOT_HEIGHT_PX;
+  const getHeight = (start: number, end: number) =>
+    ((end - start + interval) / interval) * SLOT_HEIGHT_PX;
 
   const renderSelectionForDay = (day: number) => {
     if (!selectionStart || !selectionCurrent || selectionStart.day !== day) return null;
     const start = Math.min(selectionStart.min, selectionCurrent.min);
     const end = Math.max(selectionStart.min, selectionCurrent.min);
+    const endClock = end + interval;
     
     return (
       <div 
-        className="absolute left-1 right-1 bg-primary/20 border-2 border-primary/50 rounded-md pointer-events-none"
+        className="absolute left-1 right-1 bg-primary/80 text-white rounded-md px-2 py-1 pointer-events-none shadow-md flex flex-col justify-start overflow-hidden"
         style={{
           top: `${getTop(start)}px`,
           height: `${getHeight(start, end)}px`,
-          zIndex: 5
+          zIndex: 15
         }}
-      />
+      >
+        <span className="text-xs font-semibold leading-tight truncate">(Sem título)</span>
+        <span className="text-[11px] opacity-90 leading-tight truncate">
+          {formatMinToTime(start)} às {formatMinToTime(endClock)}
+        </span>
+      </div>
     );
   };
 
@@ -705,8 +1034,8 @@ export const RoutineGrid: React.FC = () => {
               const dayEvents = [...manualDayEvents, ...syncedDayEvents];
 
               // Posição da barra de tempo atual em tempo real (estilo Google Agenda)
-              const currentLineTop = ((currentTimeMin - startTimeMin) / interval) * 58;
-              const maxGridTop = timeSlots.length * 58;
+              const currentLineTop = ((currentTimeMin - startTimeMin) / interval) * SLOT_HEIGHT_PX;
+              const maxGridTop = timeSlots.length * SLOT_HEIGHT_PX;
               const showCurrentTimeLine =
                 isToday && currentLineTop >= 0 && currentLineTop <= maxGridTop;
               
@@ -739,30 +1068,81 @@ export const RoutineGrid: React.FC = () => {
                   )}
 
                   {/* Render Events */}
-                  {dayEvents.map(evento => {
-                    const top = getTop(evento.inicio_minutos);
-                    const height = getHeight(evento.inicio_minutos, evento.fim_minutos);
-                    if (top < 0 || top > timeSlots.length * 58) return null;
+                  {dayEvents.map((evento) => {
+                    const isThisResizing = resizingEvent?.eventId === evento.id;
+                    const effectiveStartMin = isThisResizing
+                      ? resizingEvent.currentStartMin
+                      : evento.inicio_minutos;
+                    const effectiveEndClockMin = isThisResizing
+                      ? resizingEvent.currentEndClockMin
+                      : evento.fim_minutos + interval;
+                    const effectiveFimMinutos = effectiveEndClockMin - interval;
+
+                    const top = getTop(effectiveStartMin);
+                    const height = getHeight(effectiveStartMin, effectiveFimMinutos);
+                    if (top < 0 || top > timeSlots.length * SLOT_HEIGHT_PX) return null;
+
+                    const timeRangeText = `${formatMinToTime(effectiveStartMin)} às ${formatMinToTime(effectiveEndClockMin)}`;
+                    const isCompact = height < 38;
                     
                     return (
                       <div
                         key={evento.id}
-                        onClick={(e) => openEventEditor(evento, e)}
-                        className="absolute left-1 right-1 rounded p-1 cursor-pointer overflow-hidden border transition-transform hover:scale-[1.02] shadow-sm flex items-center justify-center"
+                        onClick={(e) => {
+                          if (justResizedRef.current) {
+                            e.stopPropagation();
+                            return;
+                          }
+                          openEventEditor(evento, e);
+                        }}
+                        className={`group absolute left-1 right-1 rounded-md px-2 py-1 cursor-pointer overflow-hidden shadow-sm select-none flex flex-col justify-start ${
+                          isThisResizing
+                            ? "ring-2 ring-on-surface/40 shadow-lg z-30 opacity-95"
+                            : "hover:brightness-95 transition-all z-10"
+                        }`}
                         style={{
-                          top: `${top + 2}px`,
-                          height: `${height - 4}px`,
-                          backgroundColor: `${evento.cor}15`,
-                          borderColor: `${evento.cor}40`,
-                          zIndex: 10
+                          top: `${top + 1}px`,
+                          height: `${Math.max(height - 2, 14)}px`,
+                          backgroundColor: evento.cor,
+                          color: "#ffffff",
                         }}
                       >
-                        <span 
-                          className="text-xs font-semibold px-1.5 py-0.5 rounded text-center truncate w-full"
-                          style={{ backgroundColor: evento.cor, color: "#fff" }}
+                        {/* Borda superior para ajustar o horário de início */}
+                        <div
+                          onMouseDown={(e) => handleResizeStart(evento, "top", e)}
+                          className="absolute top-0 left-0 right-0 h-2 cursor-ns-resize z-30"
+                          title="Arraste para ajustar o horário de início (de 15 em 15 min)"
+                        />
+
+                        {/* Conteúdo da atividade: Título e Horário em tempo real */}
+                        {isCompact ? (
+                          <div className="flex items-center gap-1.5 truncate leading-none my-auto">
+                            <span className="text-[11px] font-semibold truncate">
+                              {evento.titulo}
+                            </span>
+                            <span className="text-[10px] opacity-90 flex-shrink-0">
+                              {timeRangeText}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-xs font-semibold leading-tight truncate">
+                              {evento.titulo}
+                            </span>
+                            <span className="text-[11px] opacity-90 leading-tight truncate mt-0.5">
+                              {timeRangeText}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Borda inferior ("Segura aqui") para esticar ou encolher a tarefa */}
+                        <div
+                          onMouseDown={(e) => handleResizeStart(evento, "bottom", e)}
+                          className="absolute bottom-0 left-0 right-0 h-3 cursor-ns-resize z-30 flex items-end justify-center pb-0.5"
+                          title="Segure e arraste para ajustar o horário de término (de 15 em 15 min)"
                         >
-                          {evento.titulo}
-                        </span>
+                          <div className="w-7 h-1 rounded-full bg-white/40 group-hover:bg-white/80 transition-colors" />
+                        </div>
                       </div>
                     );
                   })}
@@ -853,10 +1233,65 @@ export const RoutineGrid: React.FC = () => {
                   type="text"
                   value={editingEvent.titulo || ""}
                   onChange={e => setEditingEvent({ ...editingEvent, titulo: e.target.value })}
-                  placeholder="Ex: Treino, Reunião, Foco"
+                  placeholder="Adicionar título"
                   className="w-full px-3 py-2 bg-surface border border-outline rounded-lg text-body-md text-on-surface focus:border-primary focus:outline-none"
                   autoFocus
                 />
+              </div>
+
+              {/* Seletores de Horário de Início e Término (estilo Google Calendar) */}
+              <div>
+                <label className="flex items-center gap-1.5 text-label-sm text-on-surface-variant mb-1.5">
+                  <Clock size={14} className="text-primary" />
+                  <span>
+                    {DAYS_OF_WEEK[editingEvent.dia ?? 0]} • Horário
+                  </span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="time"
+                    step={900}
+                    value={formatMinToTime(editingEvent.inicio_minutos ?? startTimeMin)}
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      const newStart = parseTime(e.target.value);
+                      const currentEndClock =
+                        (editingEvent.fim_minutos ?? startTimeMin) + interval;
+                      const nextEndClock =
+                        currentEndClock <= newStart
+                          ? newStart + interval
+                          : currentEndClock;
+                      setEditingEvent({
+                        ...editingEvent,
+                        inicio_minutos: newStart,
+                        fim_minutos: nextEndClock - interval,
+                      });
+                    }}
+                    className="flex-1 px-3 py-2 bg-surface border border-outline rounded-lg text-body-sm text-on-surface focus:border-primary focus:outline-none"
+                  />
+                  <span className="text-body-sm text-on-surface-variant">às</span>
+                  <input
+                    type="time"
+                    step={900}
+                    value={formatMinToTime(
+                      (editingEvent.fim_minutos ?? startTimeMin) + interval
+                    )}
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      const newEndClock = parseTime(e.target.value);
+                      const currentStart = editingEvent.inicio_minutos ?? startTimeMin;
+                      const clampedEndClock = Math.max(
+                        currentStart + SNAP_MINUTES,
+                        newEndClock
+                      );
+                      setEditingEvent({
+                        ...editingEvent,
+                        fim_minutos: clampedEndClock - interval,
+                      });
+                    }}
+                    className="flex-1 px-3 py-2 bg-surface border border-outline rounded-lg text-body-sm text-on-surface focus:border-primary focus:outline-none"
+                  />
+                </div>
               </div>
 
               <div>
