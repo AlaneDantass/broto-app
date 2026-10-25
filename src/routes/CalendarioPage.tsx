@@ -3,6 +3,8 @@ import { useEventosCalendario } from "../hooks/useEventosCalendario";
 import { Card, EventoModal, SkeletonLoader, EventCountdownSection } from "../components";
 import { RoutineGrid } from "../components/RoutineGrid";
 import { useLanguage } from "../contexts/LanguageContext";
+import { useSensorial } from "../contexts/SensorialContext";
+import { getPastelStyle } from "../utils/pastelColors";
 import type { EventoCalendario } from "../types/database";
 interface ColorPreset {
   id: string;
@@ -12,6 +14,7 @@ interface ColorPreset {
 
 export const CalendarioPage: React.FC = () => {
   const { t } = useLanguage();
+  const { poucasCoresAtivo } = useSensorial();
   const { loading, error, getEventosDoDia, createEvento, updateEvento, deleteEvento } =
     useEventosCalendario();
 
@@ -304,24 +307,31 @@ export const CalendarioPage: React.FC = () => {
                       )}
                     </div>
                     <div className="space-y-0.5 overflow-hidden flex-1 mt-1 flex flex-col justify-end">
-                      {eventosDoDia.slice(0, 2).map((evento) => (
-                        <button
-                          key={evento.id}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleEventClick(evento);
-                          }}
-                          className="w-full text-left text-[10px] leading-tight px-1 py-0.5 rounded text-white truncate hover:opacity-85 transition-opacity"
-                          style={{ backgroundColor: evento.cor || "#808080" }}
-                        >
-                          {evento.hora ? (
-                            <span className="font-semibold mr-0.5">
-                              {evento.hora.slice(0, 5)}
-                            </span>
-                          ) : null}
-                          {evento.titulo}
-                        </button>
-                      ))}
+                      {eventosDoDia.slice(0, 2).map((evento) => {
+                        const pillStyle = getPastelStyle(evento.cor || "#808080", poucasCoresAtivo);
+                        return (
+                          <button
+                            key={evento.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEventClick(evento);
+                            }}
+                            className="w-full text-left text-[10px] leading-tight px-1.5 py-0.5 rounded truncate hover:brightness-95 transition-all"
+                            style={{
+                              backgroundColor: pillStyle.bg,
+                              color: pillStyle.text,
+                              borderLeft: `2.5px solid ${pillStyle.swatch}`,
+                            }}
+                          >
+                            {evento.hora ? (
+                              <span className="font-semibold mr-0.5">
+                                {evento.hora.slice(0, 5)}
+                              </span>
+                            ) : null}
+                            {evento.titulo}
+                          </button>
+                        );
+                      })}
                       {eventosDoDia.length > 2 && (
                         <div className="text-[9px] font-medium text-on-surface-variant px-1 leading-none">
                           +{eventosDoDia.length - 2} {t("calendar.more")}
@@ -341,17 +351,20 @@ export const CalendarioPage: React.FC = () => {
         <span className="text-label-sm font-semibold text-on-surface-variant mr-1">
           {t("calendar.eventTypes")}:
         </span>
-        {getActivePresets().map((preset) => (
-          <div key={preset.id} className="flex items-center gap-1.5">
-            <div
-              className="w-3 h-3 rounded-full border border-black/10 flex-shrink-0"
-              style={{ backgroundColor: preset.color }}
-            />
-            <span className="text-label-sm text-on-surface-variant">
-              {preset.label}
-            </span>
-          </div>
-        ))}
+        {getActivePresets().map((preset) => {
+          const presetStyle = getPastelStyle(preset.color, poucasCoresAtivo);
+          return (
+            <div key={preset.id} className="flex items-center gap-1.5">
+              <div
+                className="w-3 h-3 rounded-full border border-black/10 flex-shrink-0"
+                style={{ backgroundColor: presetStyle.swatch }}
+              />
+              <span className="text-label-sm text-on-surface-variant">
+                {preset.label}
+              </span>
+            </div>
+          );
+        })}
       </div>
 
       <RoutineGrid />

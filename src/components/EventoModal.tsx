@@ -4,6 +4,8 @@ import { Modal } from "./Modal";
 import { ConfirmModal } from "./ConfirmModal";
 import type { EventoCalendario } from "../types/database";
 import { useLanguage } from "../contexts/LanguageContext";
+import { useSensorial } from "../contexts/SensorialContext";
+import { getPastelStyle } from "../utils/pastelColors";
 
 interface EventoModalProps {
   isOpen: boolean;
@@ -31,6 +33,7 @@ export const EventoModal: React.FC<EventoModalProps> = ({
   loading = false,
 }) => {
   const { t, language } = useLanguage();
+  const { poucasCoresAtivo } = useSensorial();
 
   // Event form state
   const [titulo, setTitulo] = useState("");
@@ -260,8 +263,8 @@ export const EventoModal: React.FC<EventoModalProps> = ({
                           }`}
                         >
                           <span
-                            className="w-5 h-5 rounded-full flex items-center justify-center text-white border border-black/10 flex-shrink-0"
-                            style={{ backgroundColor: preset.color }}
+                            className="w-5 h-5 rounded-full flex items-center justify-center text-on-surface border border-black/10 flex-shrink-0"
+                            style={{ backgroundColor: getPastelStyle(preset.color, poucasCoresAtivo).swatch }}
                           >
                             {isSelected && <Check size={12} />}
                           </span>

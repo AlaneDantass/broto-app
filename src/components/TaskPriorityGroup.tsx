@@ -1,6 +1,7 @@
 import React from "react";
 import { getPriorityColor, getPriorityLabel } from "../utils/taskOrder";
 import { useLanguage } from "../contexts/LanguageContext";
+import { useSensorial } from "../contexts/SensorialContext";
 import { TaskCard } from "./TaskCard";
 import type { Task } from "../types/database";
 
@@ -26,12 +27,13 @@ export const TaskPriorityGroup: React.FC<TaskPriorityGroupProps> = ({
   onPomodoroUpdate,
 }) => {
   const { language } = useLanguage();
+  const { poucasCoresAtivo } = useSensorial();
 
   if (tasks.length === 0) {
     return null;
   }
 
-  const colors = getPriorityColor(prioridade);
+  const colors = getPriorityColor(prioridade, poucasCoresAtivo);
   const label = getPriorityLabel(prioridade, language);
 
   return (

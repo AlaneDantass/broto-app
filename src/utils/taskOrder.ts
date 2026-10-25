@@ -1,4 +1,5 @@
 import type { Task } from "../types/database";
+import { PASTEL_GREEN_UNIFIED } from "./pastelColors";
 
 export const getNextOrderForPriority = (
   tasks: Task[],
@@ -18,26 +19,35 @@ export const getNextOrderForPriority = (
 };
 
 export const getPriorityColor = (
-  prioridade: string | null | undefined
+  prioridade: string | null | undefined,
+  poucasCores: boolean = false
 ): { bg: string; border: string; text: string } => {
+  if (poucasCores && prioridade) {
+    return {
+      bg: PASTEL_GREEN_UNIFIED.bg,
+      border: PASTEL_GREEN_UNIFIED.swatch,
+      text: PASTEL_GREEN_UNIFIED.text,
+    };
+  }
+
   switch (prioridade) {
     case "urgente":
       return {
-        bg: "#CB997E",
-        border: "#9d6e5a",
-        text: "#ffffff",
+        bg: "#FCEAE4",
+        border: "#EFA892",
+        text: "#692B1B",
       };
     case "bloqueadora":
       return {
-        bg: "#B7B7A4",
-        border: "#8a8a75",
-        text: "#ffffff",
+        bg: "#FDF1E2",
+        border: "#EDBE8A",
+        text: "#664014",
       };
     case "importante":
       return {
-        bg: "#A5A58D",
-        border: "#7a7a62",
-        text: "#ffffff",
+        bg: "#DCEFE0",
+        border: "#9CCBA6",
+        text: "#234829",
       };
     default:
       return {

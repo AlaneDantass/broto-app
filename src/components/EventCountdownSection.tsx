@@ -1,6 +1,8 @@
 import React from "react";
 import { useEventosCalendario } from "../hooks/useEventosCalendario";
 import { useLanguage } from "../contexts/LanguageContext";
+import { useSensorial } from "../contexts/SensorialContext";
+import { getPastelStyle, PASTEL_GREEN_UNIFIED } from "../utils/pastelColors";
 import { Card } from "./Card";
 import { Clock, Calendar as CalendarIcon } from "lucide-react";
 
@@ -12,6 +14,7 @@ interface ColorPreset {
 
 export const EventCountdownSection: React.FC = () => {
   const { t } = useLanguage();
+  const { poucasCoresAtivo } = useSensorial();
   const { eventos, loading } = useEventosCalendario();
 
   const getActivePresets = (): ColorPreset[] => {
@@ -123,84 +126,102 @@ export const EventCountdownSection: React.FC = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {groupedByCategory.map(({ preset, events }) => (
-            <div
-              key={preset.id}
-              className="flex flex-col bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden"
-            >
-              {/* Header da Categoria */}
+          {groupedByCategory.map(({ preset, events }) => {
+            const catStyle = getPastelStyle(preset.color, poucasCoresAtivo);
+            return (
               <div
-                className="px-4 py-2.5 flex items-center justify-between border-b border-outline-variant"
-                style={{ backgroundColor: `${preset.color}15` }}
+                key={preset.id}
+                className="flex flex-col bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden"
               >
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-3 h-3 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: preset.color }}
-                  />
-                  <span
-                    className="text-label-md font-bold truncate"
-                    style={{ color: preset.color }}
-                  >
-                    {preset.label}
+                {/* Header da Categoria */}
+                <div
+                  className="px-4 py-2.5 flex items-center justify-between border-b border-outline-variant"
+                  style={{ backgroundColor: catStyle.bg }}
+                >
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-3 h-3 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: catStyle.swatch }}
+                    />
+                    <span
+                      className="text-label-md font-semibold truncate"
+                      style={{ color: catStyle.text }}
+                    >
+                      {preset.label}
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-surface border border-outline-variant text-on-surface-variant">
+                    {events.length} {events.length === 1 ? "evento" : "eventos"}
                   </span>
                 </div>
-                <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-surface border border-outline-variant text-on-surface-variant">
-                  {events.length} {events.length === 1 ? "evento" : "eventos"}
-                </span>
-              </div>
 
-              {/* Lista de Eventos */}
-              <div className="p-3 space-y-2 flex-1">
-                {events.length === 0 ? (
-                  <div className="py-4 text-center">
-                    <p className="text-label-sm text-on-surface-variant italic">
-                      Nenhum evento próximo
-                    </p>
-                  </div>
-                ) : (
-                  events.map((ev) => {
-                    const days = getDaysRemaining(ev.data);
-                    let badgeBg = "bg-primary-container text-on-primary-container";
-                    let badgeLabel = `Faltam ${days} dias`;
+                {/* Lista de Eventos */}
+                <div className="p-3 space-y-2 flex-1">
+                  {events.length === 0 ? (
+                    <div className="py-4 text-center">
+                      <p className="text-label-sm text-on-surface-variant italic">
+                        Nenhum evento próximo
+                      </p>
+                    </div>
+                  ) : (
+                    events.map((ev) => {
+                      const days = getDaysRemaining(ev.data);
+                      let badgeBg = "bg-primary-container text-on-primary-container";
+                      let badgeLabel = `Faltam ${days} dias`;
 
-                    if (days === 0) {
-                      badgeBg = "bg-red-500 text-white font-bold";
-                      badgeLabel = "🚨 Hoje!";
-                    } else if (days === 1) {
-                      badgeBg = "bg-amber-500 text-white font-semibold";
-                      badgeLabel = "⏰ Amanhã";
-                    } else if (days <= 7) {
-                      badgeBg = "bg-primary/20 text-primary font-semibold border border-primary/30";
-                      badgeLabel = `⏳ Faltam ${days} dias`;
-                    }
+                      if (days === 0) {
+                        badgeBg = poucasCoresAtivo
+                          ? ""
+                          : "bg-red-100 text-red-900 border border-red-300 font-semibold";
+                        badgeLabel = "🚨 Hoje!";
+                      } else if (days === 1) {
+                        badgeBg = poucasCoresAtivo
+                          ? ""
+                          : "bg-amber-100 text-amber-900 border border-amber-300 font-semibold";
+                        badgeLabel = "⏰ Amanhã";
+                      } else if (days <= 7) {
+                        badgeBg = poucasCoresAtivo
+                          ? ""
+                          : "bg-primary/15 text-primary font-semibold border border-primary/30";
+                        badgeLabel = `⏳ Faltam ${days} dias`;
+                      }
 
-                    return (
-                      <div
-                        key={ev.id}
-                        className="p-2.5 bg-surface rounded-lg border border-outline-variant flex items-center justify-between gap-3 hover:border-primary/40 transition-colors"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="text-body-sm font-semibold text-on-surface truncate">
-                            {ev.titulo}
-                          </p>
-                          <p className="text-[11px] text-on-surface-variant flex items-center gap-1 mt-0.5">
-                            <CalendarIcon size={12} className="flex-shrink-0" />
-                            <span>{formatEventDate(ev.data, ev.hora)}</span>
-                          </p>
-                        </div>
-                        <span
-                          className={`text-label-xs px-2 py-1 rounded-md flex-shrink-0 whitespace-nowrap ${badgeBg}`}
+                      return (
+                        <div
+                          key={ev.id}
+                          className="p-2.5 bg-surface rounded-lg border border-outline-variant flex items-center justify-between gap-3 hover:border-primary/40 transition-colors"
                         >
-                          {badgeLabel}
-                        </span>
-                      </div>
-                    );
-                  })
-                )}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-body-sm font-semibold text-on-surface truncate">
+                              {ev.titulo}
+                            </p>
+                            <p className="text-[11px] text-on-surface-variant flex items-center gap-1 mt-0.5">
+                              <CalendarIcon size={12} className="flex-shrink-0" />
+                              <span>{formatEventDate(ev.data, ev.hora)}</span>
+                            </p>
+                          </div>
+                          <span
+                            className={`text-label-xs px-2 py-1 rounded-md flex-shrink-0 whitespace-nowrap ${badgeBg}`}
+                            style={
+                              poucasCoresAtivo
+                                ? {
+                                    backgroundColor: PASTEL_GREEN_UNIFIED.bg,
+                                    color: PASTEL_GREEN_UNIFIED.text,
+                                    border: `1px solid ${PASTEL_GREEN_UNIFIED.border}`,
+                                  }
+                                : undefined
+                            }
+                          >
+                            {badgeLabel}
+                          </span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </Card>

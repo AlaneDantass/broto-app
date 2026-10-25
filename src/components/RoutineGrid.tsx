@@ -16,11 +16,14 @@ import {
 } from "lucide-react";
 import { Card } from "./Card";
 import type { EventoRotina } from "../types/database";
+import { useSensorial } from "../contexts/SensorialContext";
+import {
+  PASTEL_SWATCHES,
+  PASTEL_GREEN_UNIFIED,
+  getPastelStyle,
+} from "../utils/pastelColors";
 
-const COLORS = [
-  "#E76F51", "#2A9D8F", "#457B9D", "#8338EC", "#F15BB5", 
-  "#F4A261", "#E9C46A", "#264653", "#1D3557", "#D90429"
-];
+const COLORS = PASTEL_SWATCHES;
 
 const DAYS_OF_WEEK = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
@@ -91,6 +94,7 @@ const getWeekTags = (
 
 export const RoutineGrid: React.FC = () => {
   const { config, updateConfig } = useConfiguracoes();
+  const { poucasCoresAtivo } = useSensorial();
   const {
     integrado,
     emailGoogle,
@@ -827,10 +831,13 @@ export const RoutineGrid: React.FC = () => {
     
     return (
       <div 
-        className="absolute left-1 right-1 bg-primary/80 text-white rounded-md px-2 py-1 pointer-events-none shadow-md flex flex-col justify-start overflow-hidden"
+        className="absolute left-1 right-1 rounded-md px-2 py-1 pointer-events-none shadow-md flex flex-col justify-start overflow-hidden"
         style={{
           top: `${getTop(start)}px`,
           height: `${getHeight(start, end)}px`,
+          backgroundColor: PASTEL_GREEN_UNIFIED.bg,
+          border: `1.5px solid ${PASTEL_GREEN_UNIFIED.swatch}`,
+          color: PASTEL_GREEN_UNIFIED.text,
           zIndex: 15
         }}
       >
@@ -954,21 +961,24 @@ export const RoutineGrid: React.FC = () => {
                     )}
                   </div>
                   
-                  {tag ? (
-                    <div 
-                      onClick={() => openTagEditor(index)}
-                      className="group cursor-pointer mx-auto max-w-full inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium truncate bg-opacity-20 hover:bg-opacity-30 transition-all border"
-                      style={{ 
-                        backgroundColor: `${tag.cor}22`,
-                        borderColor: `${tag.cor}44`,
-                        color: tag.cor
-                      }}
-                      title="Editar foco do dia"
-                    >
-                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: tag.cor }} />
-                      <span className="truncate">{tag.nome}</span>
-                    </div>
-                  ) : (
+                  {tag ? (() => {
+                    const tagStyle = getPastelStyle(tag.cor, poucasCoresAtivo);
+                    return (
+                      <div 
+                        onClick={() => openTagEditor(index)}
+                        className="group cursor-pointer mx-auto max-w-full inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium truncate hover:brightness-95 transition-all border"
+                        style={{ 
+                          backgroundColor: tagStyle.bg,
+                          borderColor: tagStyle.border,
+                          color: tagStyle.text
+                        }}
+                        title="Editar foco do dia"
+                      >
+                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: tagStyle.swatch }} />
+                        <span className="truncate">{tag.nome}</span>
+                      </div>
+                    );
+                  })() : (
                     <button
                       onClick={() => openTagEditor(index)}
                       className="mx-auto flex items-center justify-center w-6 h-6 rounded-full border border-dashed border-outline-variant text-on-surface-variant hover:text-primary hover:border-primary hover:bg-primary-container transition-all"
@@ -1084,6 +1094,7 @@ export const RoutineGrid: React.FC = () => {
 
                     const timeRangeText = `${formatMinToTime(effectiveStartMin)} às ${formatMinToTime(effectiveEndClockMin)}`;
                     const isCompact = height < 38;
+                    const eventStyle = getPastelStyle(evento.cor, poucasCoresAtivo);
                     
                     return (
                       <div
@@ -1095,7 +1106,7 @@ export const RoutineGrid: React.FC = () => {
                           }
                           openEventEditor(evento, e);
                         }}
-                        className={`group absolute left-1 right-1 rounded-md px-2 py-1 cursor-pointer overflow-hidden shadow-sm select-none flex flex-col justify-start ${
+                        className={`group absolute left-1 right-1 rounded-md px-2 py-1 cursor-pointer overflow-hidden shadow-xs select-none flex flex-col justify-start ${
                           isThisResizing
                             ? "ring-2 ring-on-surface/40 shadow-lg z-30 opacity-95"
                             : "hover:brightness-95 transition-all z-10"
@@ -1103,8 +1114,10 @@ export const RoutineGrid: React.FC = () => {
                         style={{
                           top: `${top + 1}px`,
                           height: `${Math.max(height - 2, 14)}px`,
-                          backgroundColor: evento.cor,
-                          color: "#ffffff",
+                          backgroundColor: eventStyle.bg,
+                          border: `1px solid ${eventStyle.border}`,
+                          borderLeft: `3.5px solid ${eventStyle.swatch}`,
+                          color: eventStyle.text,
                         }}
                       >
                         {/* Borda superior para ajustar o horário de início */}
@@ -1120,7 +1133,7 @@ export const RoutineGrid: React.FC = () => {
                             <span className="text-[11px] font-semibold truncate">
                               {evento.titulo}
                             </span>
-                            <span className="text-[10px] opacity-90 flex-shrink-0">
+                            <span className="text-[10px] opacity-85 flex-shrink-0">
                               {timeRangeText}
                             </span>
                           </div>
@@ -1129,7 +1142,7 @@ export const RoutineGrid: React.FC = () => {
                             <span className="text-xs font-semibold leading-tight truncate">
                               {evento.titulo}
                             </span>
-                            <span className="text-[11px] opacity-90 leading-tight truncate mt-0.5">
+                            <span className="text-[11px] opacity-85 leading-tight truncate mt-0.5">
                               {timeRangeText}
                             </span>
                           </div>
@@ -1141,7 +1154,10 @@ export const RoutineGrid: React.FC = () => {
                           className="absolute bottom-0 left-0 right-0 h-3 cursor-ns-resize z-30 flex items-end justify-center pb-0.5"
                           title="Segure e arraste para ajustar o horário de término (de 15 em 15 min)"
                         >
-                          <div className="w-7 h-1 rounded-full bg-white/40 group-hover:bg-white/80 transition-colors" />
+                          <div
+                            className="w-7 h-1 rounded-full opacity-50 group-hover:opacity-90 transition-opacity"
+                            style={{ backgroundColor: eventStyle.swatch }}
+                          />
                         </div>
                       </div>
                     );
@@ -1183,16 +1199,30 @@ export const RoutineGrid: React.FC = () => {
               <div>
                 <label className="block text-label-sm text-on-surface-variant mb-2">Cor</label>
                 <div className="flex flex-wrap gap-2">
-                  {COLORS.map(c => (
+                  {(poucasCoresAtivo ? [PASTEL_GREEN_UNIFIED.swatch] : COLORS).map(c => {
+                    const swatchStyle = getPastelStyle(c, poucasCoresAtivo);
+                    return (
                       <button
                         key={c}
+                        type="button"
                         onClick={() => setTagColor(c)}
-                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-transform ${
-                          tagColor === c ? "ring-2 ring-offset-2 ring-primary scale-110" : "hover:scale-110"
+                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-transform border ${
+                          tagColor === c || poucasCoresAtivo
+                            ? "ring-2 ring-offset-2 ring-primary scale-110"
+                            : "hover:scale-110"
                         }`}
-                        style={{ backgroundColor: c }}
-                      />
-                  ))}
+                        style={{
+                          backgroundColor: swatchStyle.bg,
+                          borderColor: swatchStyle.swatch,
+                        }}
+                      >
+                        <span
+                          className="w-3.5 h-3.5 rounded-full"
+                          style={{ backgroundColor: swatchStyle.swatch }}
+                        />
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1297,16 +1327,30 @@ export const RoutineGrid: React.FC = () => {
               <div>
                 <label className="block text-label-sm text-on-surface-variant mb-2">Cor da Atividade</label>
                 <div className="flex flex-wrap gap-2">
-                  {COLORS.map(c => (
+                  {(poucasCoresAtivo ? [PASTEL_GREEN_UNIFIED.swatch] : COLORS).map(c => {
+                    const swatchStyle = getPastelStyle(c, poucasCoresAtivo);
+                    return (
                       <button
                         key={c}
+                        type="button"
                         onClick={() => setEditingEvent({ ...editingEvent, cor: c })}
-                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-transform ${
-                          editingEvent.cor === c ? "ring-2 ring-offset-2 ring-primary scale-110" : "hover:scale-110"
+                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-transform border ${
+                          editingEvent.cor === c || poucasCoresAtivo
+                            ? "ring-2 ring-offset-2 ring-primary scale-110"
+                            : "hover:scale-110"
                         }`}
-                        style={{ backgroundColor: c }}
-                      />
-                  ))}
+                        style={{
+                          backgroundColor: swatchStyle.bg,
+                          borderColor: swatchStyle.swatch,
+                        }}
+                      >
+                        <span
+                          className="w-3.5 h-3.5 rounded-full"
+                          style={{ backgroundColor: swatchStyle.swatch }}
+                        />
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 

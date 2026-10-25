@@ -289,8 +289,24 @@
 
 /* ═══════════════════════════════════════════════════════════════════════════
    MODO: POUCAS CORES E POUCO TEXTO
-   Oculta elementos decorativos marcados com a classe .decorativo
+   Unifica cores variadas em uma única tonalidade de verde pastel e
+   oculta elementos decorativos marcados com a classe .decorativo
    ═══════════════════════════════════════════════════════════════════════════ */
+[data-poucas-cores="true"] {
+  --color-primary:                    #689F71;
+  --color-on-primary:                 #FFFFFF;
+  --color-primary-container:          #DCEFE0;
+  --color-on-primary-container:       #234829;
+  --color-secondary:                  #689F71;
+  --color-on-secondary:               #FFFFFF;
+  --color-secondary-container:        #DCEFE0;
+  --color-on-secondary-container:     #234829;
+  --color-tertiary:                   #689F71;
+  --color-on-tertiary:                #FFFFFF;
+  --color-tertiary-container:         #DCEFE0;
+  --color-on-tertiary-container:      #234829;
+}
+
 [data-poucas-cores="true"] .decorativo {
   display: none !important;
 }

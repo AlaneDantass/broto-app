@@ -56,6 +56,9 @@ export const SensorialProvider: React.FC<{ children: React.ReactNode }> = ({
   const { user } = useAuth();
   const { config } = useConfiguracoes();
   const [alertaTransicao, setAlertaTransicao] = useState<TransitionAlert | null>(null);
+  const [poucasCoresAtivo, setPoucasCoresAtivo] = useState<boolean>(
+    () => localStorage.getItem("broto_poucas_cores") === "true"
+  );
 
   // IDs de eventos que já receberam alerta nesta sessão — evita repetição
   const alertadosRef = useRef<Set<string>>(new Set());
@@ -63,10 +66,18 @@ export const SensorialProvider: React.FC<{ children: React.ReactNode }> = ({
   // ── Aplica a partir do localStorage imediatamente (sem flash) ───────────
   useEffect(() => {
     const html = document.documentElement;
+    const initialPoucasCores = localStorage.getItem("broto_poucas_cores") ?? "false";
     html.setAttribute("data-tema",              localStorage.getItem("broto_tema") ?? "claro");
     html.setAttribute("data-reduzir-animacoes", localStorage.getItem("broto_reduzir_animacoes") ?? "false");
-    html.setAttribute("data-poucas-cores",      localStorage.getItem("broto_poucas_cores") ?? "false");
+    html.setAttribute("data-poucas-cores",      initialPoucasCores);
     html.setAttribute("data-preto-branco",      localStorage.getItem("broto_preto_branco") ?? "false");
+    setPoucasCoresAtivo(initialPoucasCores === "true");
+
+    const observer = new MutationObserver(() => {
+      setPoucasCoresAtivo(html.getAttribute("data-poucas-cores") === "true");
+    });
+    observer.observe(html, { attributes: true, attributeFilter: ["data-poucas-cores"] });
+    return () => observer.disconnect();
   }, []);
 
   // ── Sincroniza com o banco quando o config chegar/mudar ─────────────────
@@ -83,6 +94,7 @@ export const SensorialProvider: React.FC<{ children: React.ReactNode }> = ({
     html.setAttribute("data-reduzir-animacoes", reduzir);
     html.setAttribute("data-poucas-cores",      poucasCores);
     html.setAttribute("data-preto-branco",      pretoBranco);
+    setPoucasCoresAtivo(poucasCores === "true");
 
     // Persiste no localStorage para a próxima navegação/render ser instantânea
     localStorage.setItem("broto_tema",                tema);
@@ -147,7 +159,7 @@ export const SensorialProvider: React.FC<{ children: React.ReactNode }> = ({
   // ── Valor do context ─────────────────────────────────────────────────────
   const value: SensorialContextValue = {
     somRecompensaAtivo: config?.som_recompensa_ativo ?? false,
-    poucasCoresAtivo: config?.poucas_cores_pouco_texto_ativo ?? false,
+    poucasCoresAtivo,
     alertaTransicao,
     dismissAlerta,
   };
