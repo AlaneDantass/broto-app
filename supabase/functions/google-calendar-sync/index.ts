@@ -35,6 +35,14 @@ interface EventoBroto {
   duracao_minutos?: number;
   cor?: string;
   google_event_id?: string;
+  descricao?: string;
+  local?: string;
+  convidados?: string[];
+  videoconferencia_ativa?: boolean;
+  anexo_url?: string;
+  disponibilidade?: "ocupado" | "livre";
+  visibilidade?: "padrao" | "particular" | "publico";
+  notificacao_minutos?: number;
 }
 
 /** Renova o access_token se estiver expirado ou prestes a expirar (< 5min) */
@@ -102,6 +110,47 @@ function toGoogleEvent(evento: EventoBroto) {
   const hasTime = evento.hora && evento.hora.trim() !== "";
   const horaLimpa = hasTime ? evento.hora!.slice(0, 5) : null; // HH:MM
 
+  const fullDescription = [
+    evento.descricao?.trim(),
+    evento.anexo_url?.trim() ? `Anexo Google Drive: ${evento.anexo_url.trim()}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const extraFields: Record<string, unknown> = {};
+  if (fullDescription) extraFields.description = fullDescription;
+  if (evento.local?.trim()) extraFields.location = evento.local.trim();
+  if (evento.convidados && evento.convidados.length > 0) {
+    extraFields.attendees = evento.convidados
+      .map((email) => email.trim())
+      .filter((email) => email.includes("@"))
+      .map((email) => ({ email }));
+  }
+  if (evento.disponibilidade === "livre") {
+    extraFields.transparency = "transparent";
+  } else if (evento.disponibilidade === "ocupado") {
+    extraFields.transparency = "opaque";
+  }
+  if (evento.visibilidade === "particular") {
+    extraFields.visibility = "private";
+  } else if (evento.visibilidade === "publico") {
+    extraFields.visibility = "public";
+  }
+  if (typeof evento.notificacao_minutos === "number") {
+    extraFields.reminders = {
+      useDefault: false,
+      overrides: [{ method: "popup", minutes: evento.notificacao_minutos }],
+    };
+  }
+  if (evento.videoconferencia_ativa) {
+    extraFields.conferenceData = {
+      createRequest: {
+        requestId: `${evento.id}_${Date.now()}`,
+        conferenceSolutionKey: { type: "hangoutsMeet" },
+      },
+    };
+  }
+
   if (hasTime && horaLimpa) {
     // Evento com horário específico (dateTime)
     const startDateTime = `${evento.data}T${horaLimpa}:00`;
@@ -117,6 +166,7 @@ function toGoogleEvent(evento: EventoBroto) {
       start: { dateTime: `${startDateTime}`, timeZone: "America/Sao_Paulo" },
       end: { dateTime: `${endDateTime}:00`, timeZone: "America/Sao_Paulo" },
       colorId: googleColorIdFromHex(evento.cor),
+      ...extraFields,
       extendedProperties: {
         private: { broto_id: evento.id },
       },
@@ -132,6 +182,7 @@ function toGoogleEvent(evento: EventoBroto) {
       start: { date: evento.data },
       end: { date: nextDayStr },
       colorId: googleColorIdFromHex(evento.cor),
+      ...extraFields,
       extendedProperties: {
         private: { broto_id: evento.id },
       },
@@ -230,8 +281,9 @@ Deno.serve(async (req: Request) => {
   if (action === "create") {
     const evento: EventoBroto = body.evento;
     const googleEvent = toGoogleEvent(evento);
+    const querySuffix = evento.videoconferencia_ativa ? "?conferenceDataVersion=1" : "";
 
-    const res = await fetch(`${GOOGLE_CALENDAR_API}/calendars/primary/events`, {
+    const res = await fetch(`${GOOGLE_CALENDAR_API}/calendars/primary/events${querySuffix}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,

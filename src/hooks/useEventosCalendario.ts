@@ -116,8 +116,9 @@ export const useEventosCalendario = () => {
    * replica para o Google Calendar.
    */
   const createEvento = async (
-    evento: Omit<EventoCalendario, "id" | "usuario_id" | "criado_em">
-  ) => {
+    evento: Omit<EventoCalendario, "id" | "usuario_id" | "criado_em">,
+    options?: { skipGoogleSync?: boolean }
+  ): Promise<EventoCalendario | null> => {
     if (!user) throw new Error("Usuário não autenticado");
 
     // Garante que eventos criados pelo usuário são sempre "manual"
@@ -134,11 +135,13 @@ export const useEventosCalendario = () => {
     await fetchEventos();
 
     // Sincronizar com Google (em background — sem bloquear a UI)
-    if (integrado && created) {
+    if (integrado && created && !options?.skipGoogleSync) {
       callSync({ action: "create", evento: created }).catch((syncErr) =>
         console.error("createEvento: erro ao sincronizar com Google", syncErr)
       );
     }
+
+    return (created as EventoCalendario) ?? null;
   };
 
   /**

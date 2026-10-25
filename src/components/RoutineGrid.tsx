@@ -15,6 +15,7 @@ import {
   Clock,
 } from "lucide-react";
 import { Card } from "./Card";
+import { RoutineCreationModal } from "./RoutineCreationModal";
 import type { EventoRotina } from "../types/database";
 import { useSensorial } from "../contexts/SensorialContext";
 import {
@@ -105,6 +106,7 @@ export const RoutineGrid: React.FC = () => {
   } = useGoogleAgenda();
   const {
     eventos: eventosCalendario,
+    createEvento,
     updateEvento,
     deleteEvento,
     pullFromGoogle,
@@ -619,7 +621,13 @@ export const RoutineGrid: React.FC = () => {
         inicio_minutos: start,
         fim_minutos: end,
         titulo: "",
-        cor: COLORS[0]
+        cor: "#E76F51",
+        categoria_rotina: "evento",
+        repeticao: "nao_repete",
+        disponibilidade: "ocupado",
+        visibilidade: "padrao",
+        notificacao_minutos: 30,
+        lista_tarefa: "Minhas tarefas",
       });
       
       setSelectionStart(null);
@@ -629,6 +637,8 @@ export const RoutineGrid: React.FC = () => {
 
   const handleSaveEvent = async () => {
     if (!editingEvent || !editingEvent.titulo?.trim()) return;
+
+    const categoria = editingEvent.categoria_rotina || "evento";
 
     // Caso seja um evento importado do calendário/Google (prefixo cal_)
     if (editingEvent.id?.startsWith("cal_")) {
@@ -656,6 +666,20 @@ export const RoutineGrid: React.FC = () => {
           semana_inicio: selectedWeekStartStr,
           google_event_id: calEv?.google_event_id,
           origem: "google",
+          categoria_rotina: categoria,
+          calendario_event_id: calId,
+          convidados: editingEvent.convidados,
+          videoconferencia_ativa: editingEvent.videoconferencia_ativa,
+          meet_url: editingEvent.meet_url,
+          local: editingEvent.local,
+          descricao: editingEvent.descricao,
+          anexo_url: editingEvent.anexo_url,
+          repeticao: editingEvent.repeticao,
+          prazo_data: editingEvent.prazo_data,
+          lista_tarefa: editingEvent.lista_tarefa,
+          disponibilidade: editingEvent.disponibilidade,
+          visibilidade: editingEvent.visibilidade,
+          notificacao_minutos: editingEvent.notificacao_minutos,
         };
         const existsIdx = allRoutineEvents.findIndex((e) => e.id === calId);
         const updatedAll =
@@ -675,6 +699,14 @@ export const RoutineGrid: React.FC = () => {
               duracao_minutos: duracaoMin,
               cor: promoted.cor,
               google_event_id: calEv.google_event_id,
+              descricao: promoted.descricao,
+              local: promoted.local,
+              convidados: promoted.convidados,
+              videoconferencia_ativa: promoted.videoconferencia_ativa,
+              anexo_url: promoted.anexo_url,
+              disponibilidade: promoted.disponibilidade,
+              visibilidade: promoted.visibilidade,
+              notificacao_minutos: promoted.notificacao_minutos,
             },
           }).catch((err) =>
             console.error("Erro ao sincronizar evento no Google Agenda:", err)
@@ -695,6 +727,49 @@ export const RoutineGrid: React.FC = () => {
         ? Math.max(startMin + SNAP_MINUTES - interval, editingEvent.fim_minutos)
         : startMin;
 
+    const eventDateStr = getDateStrForDayIndex(editingEvent.dia ?? 0);
+    const startTimeHHMM = formatMinToTime(startMin);
+    let calendarioEventId = editingEvent.calendario_event_id;
+
+    // Se a aba selecionada for "evento", além do Quadro de Rotina salva também no Calendário no dia selecionado
+    if (categoria === "evento") {
+      try {
+        if (calendarioEventId) {
+          await updateEvento(calendarioEventId, {
+            titulo: editingEvent.titulo.trim(),
+            data: eventDateStr,
+            hora: startTimeHHMM,
+            cor: editingEvent.cor || "#E76F51",
+          });
+        } else {
+          const createdCal = await createEvento(
+            {
+              titulo: editingEvent.titulo.trim(),
+              data: eventDateStr,
+              hora: startTimeHHMM,
+              cor: editingEvent.cor || "#E76F51",
+              tipo: "Work Blocks",
+              origem: "manual",
+            },
+            { skipGoogleSync: true }
+          );
+          if (createdCal?.id) {
+            calendarioEventId = createdCal.id;
+          }
+        }
+      } catch (calErr) {
+        console.error("Erro ao salvar evento também no calendário:", calErr);
+      }
+    } else if (categoria === "tarefa" && calendarioEventId) {
+      // Caso tenha sido alterado de Evento para Tarefa, remove do Calendário
+      try {
+        await deleteEvento(calendarioEventId);
+        calendarioEventId = undefined;
+      } catch (calErr) {
+        console.error("Erro ao remover evento convertido em tarefa do calendário:", calErr);
+      }
+    }
+
     const savedEvent: EventoRotina = {
       id:
         editingEvent.id ||
@@ -709,6 +784,20 @@ export const RoutineGrid: React.FC = () => {
       semana_inicio: selectedWeekStartStr,
       google_event_id: editingEvent.google_event_id,
       origem: editingEvent.origem || "manual",
+      categoria_rotina: categoria,
+      calendario_event_id: calendarioEventId,
+      convidados: editingEvent.convidados,
+      videoconferencia_ativa: editingEvent.videoconferencia_ativa,
+      meet_url: editingEvent.meet_url,
+      local: editingEvent.local,
+      descricao: editingEvent.descricao,
+      anexo_url: editingEvent.anexo_url,
+      repeticao: editingEvent.repeticao,
+      prazo_data: editingEvent.prazo_data,
+      lista_tarefa: editingEvent.lista_tarefa,
+      disponibilidade: editingEvent.disponibilidade,
+      visibilidade: editingEvent.visibilidade,
+      notificacao_minutos: editingEvent.notificacao_minutos,
     };
 
     let updatedAllEvents = [...allRoutineEvents];
@@ -724,21 +813,27 @@ export const RoutineGrid: React.FC = () => {
 
       // Sincronizar automaticamente com Google Agenda se estiver conectado
       if (integrado) {
-        const eventDateStr = getDateStrForDayIndex(savedEvent.dia);
-        const startTimeHHMM = formatMinToTime(savedEvent.inicio_minutos);
         const duracaoMin = savedEvent.fim_minutos - savedEvent.inicio_minutos + interval;
 
         if (isUpdate && savedEvent.google_event_id) {
           callSync({
             action: "update",
             evento: {
-              id: savedEvent.id,
+              id: savedEvent.calendario_event_id || savedEvent.id,
               titulo: savedEvent.titulo,
               data: eventDateStr,
               hora: startTimeHHMM,
               duracao_minutos: duracaoMin,
               cor: savedEvent.cor,
               google_event_id: savedEvent.google_event_id,
+              descricao: savedEvent.descricao,
+              local: savedEvent.local,
+              convidados: savedEvent.convidados,
+              videoconferencia_ativa: savedEvent.videoconferencia_ativa,
+              anexo_url: savedEvent.anexo_url,
+              disponibilidade: savedEvent.disponibilidade,
+              visibilidade: savedEvent.visibilidade,
+              notificacao_minutos: savedEvent.notificacao_minutos,
             },
           }).catch((syncErr) =>
             console.error("Erro ao atualizar atividade no Google Agenda:", syncErr)
@@ -748,12 +843,20 @@ export const RoutineGrid: React.FC = () => {
           callSync({
             action: "create",
             evento: {
-              id: savedEvent.id,
+              id: savedEvent.calendario_event_id || savedEvent.id,
               titulo: savedEvent.titulo,
               data: eventDateStr,
               hora: startTimeHHMM,
               duracao_minutos: duracaoMin,
               cor: savedEvent.cor,
+              descricao: savedEvent.descricao,
+              local: savedEvent.local,
+              convidados: savedEvent.convidados,
+              videoconferencia_ativa: savedEvent.videoconferencia_ativa,
+              anexo_url: savedEvent.anexo_url,
+              disponibilidade: savedEvent.disponibilidade,
+              visibilidade: savedEvent.visibilidade,
+              notificacao_minutos: savedEvent.notificacao_minutos,
             },
           })
             .then(async (res) => {
@@ -799,6 +902,11 @@ export const RoutineGrid: React.FC = () => {
     const updatedAllEvents = allRoutineEvents.filter((e) => e.id !== id);
     try {
       await updateConfig({ eventos_rotina_semanal: updatedAllEvents });
+      if (eventToDelete?.calendario_event_id) {
+        await deleteEvento(eventToDelete.calendario_event_id).catch((e) =>
+          console.error("Erro ao remover evento correspondente do calendário:", e)
+        );
+      }
       setEditingEvent(null);
 
       if (integrado && eventToDelete?.google_event_id) {
@@ -1023,6 +1131,7 @@ export const RoutineGrid: React.FC = () => {
                     !eventos.some(
                       (re) =>
                         (ev.google_event_id && re.google_event_id === ev.google_event_id) ||
+                        re.calendario_event_id === ev.id ||
                         re.id === ev.id
                     )
                 )
@@ -1245,145 +1354,21 @@ export const RoutineGrid: React.FC = () => {
         </div>
       )}
 
-      {/* Routine Event Modal */}
+      {/* Routine Event / Task / Appointment Schedule Modal (Google Calendar Style) */}
       {editingEvent && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 animate-in fade-in" onMouseDown={() => setEditingEvent(null)}>
-          <div className="bg-surface rounded-xl shadow-xl p-6 w-full max-w-sm" onMouseDown={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-title-md text-on-surface">{editingEvent.id ? "Editar Atividade" : "Nova Atividade"}</h3>
-              <button onClick={() => setEditingEvent(null)} className="text-on-surface-variant hover:text-on-surface">
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-label-sm text-on-surface-variant mb-1">O que você fará neste horário?</label>
-                <input
-                  type="text"
-                  value={editingEvent.titulo || ""}
-                  onChange={e => setEditingEvent({ ...editingEvent, titulo: e.target.value })}
-                  placeholder="Adicionar título"
-                  className="w-full px-3 py-2 bg-surface border border-outline rounded-lg text-body-md text-on-surface focus:border-primary focus:outline-none"
-                  autoFocus
-                />
-              </div>
-
-              {/* Seletores de Horário de Início e Término (estilo Google Calendar) */}
-              <div>
-                <label className="flex items-center gap-1.5 text-label-sm text-on-surface-variant mb-1.5">
-                  <Clock size={14} className="text-primary" />
-                  <span>
-                    {DAYS_OF_WEEK[editingEvent.dia ?? 0]} • Horário
-                  </span>
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="time"
-                    step={900}
-                    value={formatMinToTime(editingEvent.inicio_minutos ?? startTimeMin)}
-                    onChange={(e) => {
-                      if (!e.target.value) return;
-                      const newStart = parseTime(e.target.value);
-                      const currentEndClock =
-                        (editingEvent.fim_minutos ?? startTimeMin) + interval;
-                      const nextEndClock =
-                        currentEndClock <= newStart
-                          ? newStart + interval
-                          : currentEndClock;
-                      setEditingEvent({
-                        ...editingEvent,
-                        inicio_minutos: newStart,
-                        fim_minutos: nextEndClock - interval,
-                      });
-                    }}
-                    className="flex-1 px-3 py-2 bg-surface border border-outline rounded-lg text-body-sm text-on-surface focus:border-primary focus:outline-none"
-                  />
-                  <span className="text-body-sm text-on-surface-variant">às</span>
-                  <input
-                    type="time"
-                    step={900}
-                    value={formatMinToTime(
-                      (editingEvent.fim_minutos ?? startTimeMin) + interval
-                    )}
-                    onChange={(e) => {
-                      if (!e.target.value) return;
-                      const newEndClock = parseTime(e.target.value);
-                      const currentStart = editingEvent.inicio_minutos ?? startTimeMin;
-                      const clampedEndClock = Math.max(
-                        currentStart + SNAP_MINUTES,
-                        newEndClock
-                      );
-                      setEditingEvent({
-                        ...editingEvent,
-                        fim_minutos: clampedEndClock - interval,
-                      });
-                    }}
-                    className="flex-1 px-3 py-2 bg-surface border border-outline rounded-lg text-body-sm text-on-surface focus:border-primary focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-label-sm text-on-surface-variant mb-2">Cor da Atividade</label>
-                <div className="flex flex-wrap gap-2">
-                  {(poucasCoresAtivo ? [PASTEL_GREEN_UNIFIED.swatch] : COLORS).map(c => {
-                    const swatchStyle = getPastelStyle(c, poucasCoresAtivo);
-                    return (
-                      <button
-                        key={c}
-                        type="button"
-                        onClick={() => setEditingEvent({ ...editingEvent, cor: c })}
-                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-transform border ${
-                          editingEvent.cor === c || poucasCoresAtivo
-                            ? "ring-2 ring-offset-2 ring-primary scale-110"
-                            : "hover:scale-110"
-                        }`}
-                        style={{
-                          backgroundColor: swatchStyle.bg,
-                          borderColor: swatchStyle.swatch,
-                        }}
-                      >
-                        <span
-                          className="w-3.5 h-3.5 rounded-full"
-                          style={{ backgroundColor: swatchStyle.swatch }}
-                        />
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="flex justify-between items-center pt-4">
-                {editingEvent.id ? (
-                  <button
-                    onClick={() => handleDeleteEvent(editingEvent.id!)}
-                    className="p-2 text-error hover:bg-error/10 rounded-lg transition-colors"
-                    title="Excluir atividade"
-                  >
-                    <Trash2 size={20} />
-                  </button>
-                ) : <div />}
-                
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setEditingEvent(null)}
-                    className="px-4 py-2 text-label-md text-on-surface hover:bg-surface-variant rounded-lg transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={handleSaveEvent}
-                    disabled={!editingEvent.titulo?.trim()}
-                    className="px-4 py-2 bg-primary text-on-primary text-label-md font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
-                  >
-                    Salvar
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <RoutineCreationModal
+          editingEvent={editingEvent}
+          setEditingEvent={setEditingEvent}
+          selectedDateObj={getDateForDayIndex(editingEvent.dia ?? 0)}
+          startTimeMin={startTimeMin}
+          interval={interval}
+          snapMinutes={SNAP_MINUTES}
+          formatMinToTime={formatMinToTime}
+          parseTime={parseTime}
+          onSave={handleSaveEvent}
+          onDelete={handleDeleteEvent}
+          emailGoogle={emailGoogle}
+        />
       )}
     </Card>
   );

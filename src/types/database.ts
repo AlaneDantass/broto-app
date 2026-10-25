@@ -143,6 +143,20 @@ export interface EventoRotina {
   semana_inicio?: string;
   google_event_id?: string;
   origem?: "manual" | "google";
+  categoria_rotina?: "evento" | "tarefa" | "agendamento";
+  calendario_event_id?: string;
+  convidados?: string[];
+  videoconferencia_ativa?: boolean;
+  meet_url?: string;
+  local?: string;
+  descricao?: string;
+  anexo_url?: string;
+  repeticao?: string;
+  prazo_data?: string;
+  lista_tarefa?: string;
+  disponibilidade?: "ocupado" | "livre";
+  visibilidade?: "padrao" | "particular" | "publico";
+  notificacao_minutos?: number;
 }
 
 export interface ConfiguracaoUsuario {
